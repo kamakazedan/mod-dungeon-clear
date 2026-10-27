@@ -834,7 +834,7 @@ DungeonClearAdvanceAction::Step DungeonClearAdvanceAction::TryBetweenPullsRest(A
     DcPartyState::RestGate const rest = DcPartyState::GetRestGate(bot, context);
     std::string const why = DcPartyState::DescribePartyNotReady(
         bot, rest.minHp, rest.minMp,
-        gate.maxSpread, gate.anchor, gate.maxTankGap);
+        gate.maxSpread, gate.anchor, gate.maxTankGap, gate.maxSpreadNonHealer);
     LOG_DEBUG("playerbots.dungeonclear",
               "[DC:{}] advance yielding after {} ticks: party not ready / resting{}",
               bot->GetName(), appr.partyNotReadyTicks,

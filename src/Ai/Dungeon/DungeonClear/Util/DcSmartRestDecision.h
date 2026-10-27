@@ -78,6 +78,15 @@ namespace DcSmartRestDecision
         float         healerManaTriggerPct = 40.0f;  // SmartRestHealerManaPct
         std::uint32_t maxRestMs = 0;       // timeout failsafe; 0 = never time out
 
+        // Mana release bars by role (SmartRestHealerManaReleasePct /
+        // SmartRestDpsManaReleasePct, DPS and tanks sharing one as they share a
+        // trigger). The healer is who a pull cannot start without; a DPS at
+        // half mana is fine to push on. Both default to kManaReleasePct. The
+        // glue keeps each above its own trigger, so a release can never
+        // instantly re-latch.
+        float         healerManaReleasePct = kManaReleasePct;
+        float         dpsManaReleasePct = kManaReleasePct;
+
         // The next pull is a BOSS and the tank is inside its engage range. Raises
         // the latch entry from the low role triggers to each member's MANA release
         // bar: a healer at 45% is fine to push trash on, but must not open a boss
@@ -101,10 +110,10 @@ namespace DcSmartRestDecision
     float ManaTriggerPct(Member const& m, Inputs const& in);
 
     // Release bars for one member, bot and human alike: kReleasePct on HP and
-    // kManaReleasePct on mana, on every applicable dimension even one whose
-    // trigger is disabled (a rest is a rest). Mana bar is 0 for non-mana users.
-    // Neither bar reads the triggers, so both ignore Inputs entirely — the
-    // parameter stays for call-site symmetry with the rest of the kernel.
+    // the role's mana release bar (Inputs::healerManaReleasePct or
+    // dpsManaReleasePct, kManaReleasePct unless configured) on mana, on every
+    // applicable dimension even one whose trigger is disabled (a rest is a
+    // rest). Mana bar is 0 for non-mana users. Neither bar reads the triggers.
     float HpReleaseBar(Member const& m, Inputs const& in);
     float ManaReleaseBar(Member const& m, Inputs const& in);
 

@@ -156,6 +156,16 @@ inline constexpr DcSettingDef kDcSettings[] =
     { "SmartRestHealthPct",     DcType::UInt,  50,   0, 100,  true  },
     { "SmartRestDpsManaPct",    DcType::UInt,  10,   0, 100,  true  },
     { "SmartRestHealerManaPct", DcType::UInt,  40,   0, 100,  true  },
+    // The mana a rest holds out for, by role: a rest ends when every healer is
+    // at its bar and every DPS or tank mana user at its own (90 = the old
+    // single bar, for both). Each is kept 5 above its role's trigger, whatever
+    // the conf says, so a release can never re-latch on the spot.
+    { "SmartRestHealerManaReleasePct", DcType::UInt, 90, 1, 100, true },
+    { "SmartRestDpsManaReleasePct",    DcType::UInt, 90, 1, 100, true },
+    // A DPS bot still drinking when the rest ends finishes its drink before it
+    // walks after the tank: it stays seated until full, or until the drink
+    // runs out or a fight starts. Off = it stands up and follows at once.
+    { "SmartRestDrinkToFull",   DcType::Bool,   0,   0,   1,  true  },
 
     // Post-combat party resurrection. With PostCombatRez on, a death no longer
     // ends the run outright: when combat drops with dead member(s) and a living
@@ -310,6 +320,14 @@ inline constexpr DcSettingDef kDcSettings[] =
     // legitimately longer than a 5-man file, and holding raids to the 25yd
     // dungeon spread would freeze the advance behind every straggler.
     { "PartyMaxSpread",        DcType::Float, 25,  10, 120,  true, kDcNoHeroic, 40 },
+    // How far behind the tank a member who is NOT a healer may be and still
+    // count as with the party between pulls; healers keep PartyMaxSpread.
+    // The healer is who the tank cannot pull without, and a DPS finishing a
+    // drink or a loot catches up on the way. 0 (default) = PartyMaxSpread for
+    // everyone. Never tighter than PartyMaxSpread, and only the ordinary gate
+    // widens: a sealed boss room's muster clump and a waived gate are as they
+    // were.
+    { "PartyMaxSpreadNonHealer", DcType::Float, 0,  0, 120,  true  },
 
     // In-combat regroup (contribution-gated, Option B): reconnect a follower to the
     // fight ONLY when it truly can't contribute from where it stands — a DPS with no

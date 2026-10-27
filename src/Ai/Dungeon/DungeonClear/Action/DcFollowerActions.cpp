@@ -59,6 +59,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcPartyState.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcPathWorker.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRezRecovery.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcSmartRest.h"
 #include "Ai/Dungeon/DungeonClear/Data/FightInPlaceRegistry.h"
 #include "Ai/Dungeon/DungeonClear/Data/ScriptedPullRegistry.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcTargeting.h"
@@ -308,6 +309,24 @@ bool DungeonClearFollowTankAction::Execute(Event /*event*/)
     // items pending, bags full) otherwise wastes 15s here AND keeps the tank's
     // IsAnyPartyMemberLooting true, stalling the whole party on it.
     DcLootPolicy::MaybeGiveUpCampedLoot(botAI, DC_LOOT_CAMP_TIMEOUT_MS, DC_LOOT_GIVEUP_TTL_MS);
+
+    // A DPS still drinking when the rest ended finishes the drink before it
+    // walks after the tank (DungeonClear.SmartRestDrinkToFull): it stays seated
+    // until full, the drink runs out or something fights. The tank waits for it
+    // at the party-spread gate like for anyone else trailing. Claims the tick,
+    // with no follow generator left to stand it up -- standing is what ends a
+    // drink.
+    if (DcSmartRest::DrinkingToFull(bot, tank))
+    {
+        DcMovement::StopBot(bot, DcMovement::Stop::Hold);
+        followedTank = tank->GetGUID();
+        DcFollowerLifecycle::MarkFollowing(bot->GetGUID());
+        LOG_DEBUG("playerbots.dungeonclear",
+                  "[DC:{}] follow-tank: finishing a drink first ({:.0f}% mana)",
+                  bot->GetName(), bot->GetPowerPct(POWER_MANA));
+        return true;
+    }
+
     uint32& lootYieldStart =
         context->GetValue<DcApproachState&>(DcKey::ApproachState)->Get().lootYieldStartMs;
     bool const lootYield =

@@ -13,6 +13,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcRun.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcTickMemo.h"
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <vector>
@@ -22,7 +23,11 @@
 #include "Player.h"
 #include "PlayerbotAI.h"
 #include "Playerbots.h"
+#include "SpellAuraEffects.h"
+#include "SpellInfo.h"
 #include "Timer.h"
+
+#include "Ai/Dungeon/DungeonClear/Util/DcMovement.h"
 
 namespace
 {
@@ -88,6 +93,20 @@ namespace
         in.healerManaTriggerPct = static_cast<float>(DcSettings::GetUInt(leader, "SmartRestHealerManaPct"));
         in.maxRestMs = DC_SMART_REST_MAX_MS;
 
+        // The release bar by role, kept clear of the role's own trigger: at or
+        // under it, a member released at its bar would latch the next rest on
+        // the very same tick.
+        auto const releaseBar = [](float configured, float trigger)
+        {
+            return std::min(100.0f, std::max(configured, trigger + 5.0f));
+        };
+        in.healerManaReleasePct = releaseBar(
+            static_cast<float>(DcSettings::GetUInt(leader, "SmartRestHealerManaReleasePct")),
+            in.healerManaTriggerPct);
+        in.dpsManaReleasePct = releaseBar(
+            static_cast<float>(DcSettings::GetUInt(leader, "SmartRestDpsManaReleasePct")),
+            in.dpsManaTriggerPct);
+
         // Boss-pull top-off: the next anchor is a real boss and the tank is
         // inside its engage range (same memoized distance+floor test the at-boss
         // trigger fires on), so the very next pull IS the boss. Raise the latch
@@ -111,6 +130,28 @@ namespace DcSmartRest
     bool Enabled(Player* bot)
     {
         return DcSettings::GetBool(bot, "SmartRest");
+    }
+
+    bool DrinkingToFull(Player* member, Player* tank)
+    {
+        if (!member || !tank || !GET_PLAYERBOT_AI(member) || !Enabled(member) ||
+            !DcSettings::GetBool(member, "SmartRestDrinkToFull"))
+            return false;
+        if (PlayerbotAI::IsHeal(member) || PlayerbotAI::IsTank(member))
+            return false;
+        if (member->getPowerType() != POWER_MANA || member->GetMaxPower(POWER_MANA) == 0 ||
+            member->GetPowerPct(POWER_MANA) >= DcSmartRestDecision::kReleasePct)
+            return false;
+        if (member->IsInCombat() || tank->IsInCombat() || member->getStandState() != UNIT_STAND_STATE_SIT)
+            return false;
+        // A drink: a mana aura that standing up would end.
+        for (AuraType const type : { SPELL_AURA_MOD_POWER_REGEN, SPELL_AURA_OBS_MOD_POWER,
+                                     SPELL_AURA_PERIODIC_ENERGIZE })
+            for (AuraEffect const* effect : member->GetAuraEffectsByType(type))
+                if (effect && effect->GetMiscValue() == POWER_MANA && effect->GetSpellInfo() &&
+                    (effect->GetSpellInfo()->AuraInterruptFlags & AURA_INTERRUPT_FLAG_NOT_SEATED))
+                    return true;
+        return false;
     }
 
     bool UpdateLatch(Player* leader, AiObjectContext* leaderCtx)
@@ -160,6 +201,19 @@ namespace DcSmartRest
                          leader->GetName(), in.restElapsedMs, DC_SMART_REST_REARM_MS);
             }
             run.smartRestSinceMs = 0;
+
+            // The rest is over, and the tank is about to walk off. A DPS still
+            // drinking is taken off the follow it is on first: that follow is a
+            // standing order that would walk it after the tank -- standing it up
+            // and ending the drink -- before its own AI, often sat out for the
+            // length of the drink, could say otherwise. Follow-tank holds it
+            // from here until it is full (DrinkingToFull).
+            if (Group* group = leader->GetGroup())
+                for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+                    if (Player* member = ref->GetSource())
+                        if (member != leader && member->GetMapId() == leader->GetMapId() &&
+                            DrinkingToFull(member, leader))
+                            DcMovement::StopBot(member, DcMovement::Stop::Hold);
         }
         run.smartRestLatched = verdict.latched;
         return run.smartRestLatched;

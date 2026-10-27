@@ -19,9 +19,11 @@ namespace DcSmartRestDecision
         return kReleasePct;
     }
 
-    float ManaReleaseBar(Member const& m, Inputs const&)
+    float ManaReleaseBar(Member const& m, Inputs const& in)
     {
-        return m.isManaUser ? kManaReleasePct : 0.0f;
+        if (!m.isManaUser)
+            return 0.0f;
+        return m.isHealer ? in.healerManaReleasePct : in.dpsManaReleasePct;
     }
 
     bool BelowTrigger(Member const& m, Inputs const& in)

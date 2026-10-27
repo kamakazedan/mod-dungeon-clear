@@ -95,8 +95,16 @@ float DcPartyState::RestMinMpPct(Player* bot)
     // higher gate would strand the tank waiting on slow natural mana regen.
     return std::min(75.0f, static_cast<float>(DC_PB_CONFIG(HighMana, highMana)));
 }
+// The spread `member` is held to: the wider non-healer one when the gate has
+// it and the member is not a healer.
+static float SpreadFor(Player* member, float maxSpread, float maxSpreadNonHealer)
+{
+    return (maxSpreadNonHealer > maxSpread && !PlayerbotAI::IsHeal(member)) ? maxSpreadNonHealer : maxSpread;
+}
+
 bool DcPartyState::IsPartyReady(Player* bot, float minHpPct, float minMpPct, float maxSpread,
-                                Position const* spreadAnchor, float maxTankGap)
+                                Position const* spreadAnchor, float maxTankGap,
+                                float maxSpreadNonHealer)
 {
     if (!bot)
         return false;
@@ -112,7 +120,7 @@ bool DcPartyState::IsPartyReady(Player* bot, float minHpPct, float minMpPct, flo
         {
             float const spread = spreadAnchor ? member->GetDistance(*spreadAnchor)
                                               : bot->GetDistance(member);
-            if (spread > maxSpread)
+            if (spread > SpreadFor(member, maxSpread, maxSpreadNonHealer))
                 return false;
             // Absolute tank<->member backstop (camp-anchored mode only): a stale
             // camp sitting where the party stands passes the anchored spread
@@ -311,6 +319,12 @@ DcPartyState::SpreadGate DcPartyState::GetSpreadGate(Player* bot, AiObjectContex
             gate.maxTankGap = 0.0f;
         }
     }
+
+    // The ordinary gate, and only it, lets those who are not healers trail
+    // further. Above: waived gates and a sealed room's clump are not widened.
+    float const nonHealer = DcSettings::GetFloat(bot, "PartyMaxSpreadNonHealer");
+    if (nonHealer > gate.maxSpread)
+        gate.maxSpreadNonHealer = nonHealer;
     return gate;
 }
 DcPartyState::SpreadGate DcPartyState::LeaderGate(Player* bot)
@@ -412,14 +426,15 @@ bool DcPartyState::IsBetweenPullsReady(Player* bot, AiObjectContext* context, bo
         SpreadGate const gate = GetSpreadGate(bot, context);
         // Thresholds 0 = spread-only readiness; recovery is the latch's job.
         return !latched &&
-               IsPartyReady(bot, 0.0f, 0.0f, gate.maxSpread, gate.anchor, gate.maxTankGap);
+               IsPartyReady(bot, 0.0f, 0.0f, gate.maxSpread, gate.anchor, gate.maxTankGap,
+                            gate.maxSpreadNonHealer);
     }
     if (requireNoLoot && context->GetValue<bool>(DcKey::Stock::HasAvailableLoot)->Get())
         return false;
     SpreadGate const gate = GetSpreadGate(bot, context);
     RestGate const rest = GetRestGate(bot, context);
     return IsPartyReady(bot, rest.minHp, rest.minMp, gate.maxSpread, gate.anchor,
-                        gate.maxTankGap);
+                        gate.maxTankGap, gate.maxSpreadNonHealer);
 }
 bool DcPartyState::IsScriptedStageMustering(Player* bot, AiObjectContext* context)
 {
@@ -549,7 +564,8 @@ std::string DcPartyState::DescribePartyNotReady(Player* bot,
                                                     float minHpPct, float minMpPct,
                                                     float maxSpread,
                                                     Position const* spreadAnchor,
-                                                    float maxTankGap)
+                                                    float maxTankGap,
+                                                    float maxSpreadNonHealer)
 {
     if (!bot)
         return "";
@@ -579,7 +595,7 @@ std::string DcPartyState::DescribePartyNotReady(Player* bot,
         std::string reason;
         if (member != bot &&
             ((spreadAnchor ? member->GetDistance(*spreadAnchor)
-                           : bot->GetDistance(member)) > maxSpread ||
+                           : bot->GetDistance(member)) > SpreadFor(member, maxSpread, maxSpreadNonHealer) ||
              (maxTankGap > 0.0f && bot->GetDistance(member) > maxTankGap)))
             reason = "out of range";
         else if (member->GetHealthPct() < minHpPct)

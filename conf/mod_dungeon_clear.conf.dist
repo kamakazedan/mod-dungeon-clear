@@ -234,11 +234,13 @@ DungeonClear.RestManaPct = 0
 #        Hysteresis rest cycles. When on, the party pushes with no eating or
 #        drinking at all until ANY member falls below a role trigger
 #        (SmartRestHealthPct / SmartRestDpsManaPct / SmartRestHealerManaPct) —
-#        then the whole party stops and rests to FULL health and mana before
-#        pushing again. Fewer, longer rests instead of constant micro-rests.
-#        Boss pulls are special-cased: at the boss the party always rests mana
-#        back up to ~90% before pulling, whatever the triggers say — a hard
-#        boss is never opened on a party just above its trash thresholds.
+#        then the whole party stops and rests to full health and each role's
+#        mana release bar (SmartRestHealerManaReleasePct /
+#        SmartRestDpsManaReleasePct, ~90% unless set) before pushing again.
+#        Fewer, longer rests instead of constant micro-rests. Boss pulls are
+#        special-cased: at the boss the party always rests mana back up to
+#        those bars before pulling, whatever the triggers say — a hard boss is
+#        never opened on a party just above its trash thresholds.
 #        While on, the legacy RestHealthPct/RestManaPct targets are ignored.
 #        Overridable per run from the companion addon.
 #            0 = off (legacy rest behavior)
@@ -283,6 +285,38 @@ DungeonClear.SmartRestDpsManaPct = 10
 #
 
 DungeonClear.SmartRestHealerManaPct = 40
+
+#
+#    DungeonClear.SmartRestHealerManaReleasePct
+#    DungeonClear.SmartRestDpsManaReleasePct
+#        Smart Rest only. The mana a rest holds out for, by role: once every
+#        healer is at its bar and every DPS or tank mana user at its own (and
+#        everyone at full health), the party moves on. The healer is who a
+#        pull cannot start without; a DPS at half mana is fine to push on, and
+#        tops the rest up on the way (see SmartRestDrinkToFull). Before a boss
+#        the party rests to these same bars. Each is kept at least 5 above its
+#        role's trigger, so a rest can never end and start again on the spot.
+#
+#        Default: 90 and 90 (one bar for everyone, as before)
+#
+
+DungeonClear.SmartRestHealerManaReleasePct = 90
+DungeonClear.SmartRestDpsManaReleasePct = 90
+
+#
+#    DungeonClear.SmartRestDrinkToFull
+#        Smart Rest only. A DPS bot still drinking when a rest ends finishes its
+#        drink before it walks after the tank: it stays seated until its mana is
+#        full, the drink runs out or a fight starts, then catches up. The tank
+#        waits for it at the party-spread gate like for anyone else trailing
+#        (see PartyMaxSpreadNonHealer). Healers and tanks are never held.
+#            0 = stand up and follow the moment the rest ends
+#            1 = finish the drink
+#
+#        Default: 0
+#
+
+DungeonClear.SmartRestDrinkToFull = 0
 
 #
 #    DungeonClear.PostCombatRez
@@ -409,6 +443,21 @@ DungeonClear.WaitAtBoss = 0
 #
 
 DungeonClear.PartyMaxSpread = 25.0
+
+#
+#    DungeonClear.PartyMaxSpreadNonHealer
+#        How far behind the tank a party member who is NOT a healer may be and
+#        still count as with the party; healers keep PartyMaxSpread. The tank
+#        cannot pull without its healer, but a DPS finishing a drink or a loot
+#        catches up on the way. Never tighter than PartyMaxSpread. Only the
+#        ordinary between-pulls gate widens: a sealed boss room's muster, and
+#        the gate a pull at camp waives, are as they were.
+#            0 = PartyMaxSpread for everyone
+#
+#        Default: 0
+#
+
+DungeonClear.PartyMaxSpreadNonHealer = 0
 
 #
 #    DungeonClear.CombatRegroup

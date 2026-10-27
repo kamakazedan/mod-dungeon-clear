@@ -37,6 +37,14 @@ namespace DcSmartRest
     // event-regroup check in RestTargetIfActive already uses. Never updates.
     bool IsLatched(Player* leaderTank);
 
+    // DungeonClear.SmartRestDrinkToFull: is `member` a DPS bot still seated
+    // with a drink, short of full mana, with nothing fighting (it or `tank`)?
+    // Such a member finishes the drink before it walks after the tank: the
+    // rest released on the healer's and the DPS's lower bars, and the last of
+    // the mana would otherwise be left in the glass. Bounded by the drink
+    // itself, an aura that ends on its own. Healers and tanks are never held.
+    bool DrinkingToFull(Player* member, Player* tank);
+
     // "Smart Rest: waiting on Neko (mana 34%), Bib (hp 61%) +1 more" — names
     // the members still below their release bar, capped like
     // DcPartyState::DescribePartyNotReady. Empty when nothing blocks.

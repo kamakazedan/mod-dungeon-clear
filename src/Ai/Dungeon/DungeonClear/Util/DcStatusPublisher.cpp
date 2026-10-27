@@ -348,12 +348,13 @@ std::string DcStatusPublisher::BuildStatusPayload(PlayerbotAI* botAI)
         // exactly mirroring the between-pulls gate.
         else if (DcPartyState::SpreadGate const gate = DcPartyState::GetSpreadGate(bot, context);
                  !DcPartyState::IsPartyReady(bot, rest.minHp, rest.minMp,
-                     gate.maxSpread, gate.anchor, gate.maxTankGap))
+                     gate.maxSpread, gate.anchor, gate.maxTankGap, gate.maxSpreadNonHealer))
         {
             stateStr = "resting";
             std::string const who = DcPartyState::DescribePartyNotReady(bot, rest.minHp, rest.minMp,
                                                                             gate.maxSpread, gate.anchor,
-                                                                            gate.maxTankGap);
+                                                                            gate.maxTankGap,
+                                                                            gate.maxSpreadNonHealer);
             detail = who.empty() ? "Waiting for the party to recover." : (who + ".");
         }
         else if (!stall.empty())

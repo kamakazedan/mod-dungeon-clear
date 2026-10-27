@@ -489,3 +489,78 @@ TEST(DcSmartRestTest, MixedRolesBlockersNameOnlyTheTriggering)
     ASSERT_EQ(r.blockers.size(), 1u);
     EXPECT_EQ(r.blockers[0], 1u);
 }
+
+// ---- release bars by role -------------------------------------------------------
+
+namespace
+{
+    // Healer 80, DPS (and tank) 50: what a server that would rather not wait
+    // for every caster to reach 90 sets.
+    Inputs RoleBarInputs(bool latched)
+    {
+        Inputs in = latched ? LatchedInputs() : BaseInputs();
+        in.healerManaReleasePct = 80.0f;
+        in.dpsManaReleasePct = 50.0f;
+        return in;
+    }
+}
+
+TEST(DcSmartRestTest, RoleBarsReleaseOnTheirOwnBar)
+{
+    // Healer at its 80 bar, both casters and the human at 50: everyone is
+    // through. The single 90 bar would have held all four.
+    auto party = BaseParty();
+    party[0].manaPct = 50.0f;
+    party[1].manaPct = 80.0f;
+    party[2].manaPct = 50.0f;
+    party[4].manaPct = 50.0f;
+    EXPECT_FALSE(Decide(RoleBarInputs(true), party).latched);
+    EXPECT_TRUE(Decide(LatchedInputs(), party).latched);
+}
+
+TEST(DcSmartRestTest, RoleBarsHoldTheHealerToItsBar)
+{
+    auto party = BaseParty();
+    party[1].manaPct = 79.0f;   // healer short of 80
+    party[2].manaPct = 95.0f;
+    Result const r = Decide(RoleBarInputs(true), party);
+    EXPECT_TRUE(r.latched);
+    ASSERT_EQ(r.blockers.size(), 1u);
+    EXPECT_EQ(r.blockers[0], 1u);
+}
+
+TEST(DcSmartRestTest, RoleBarsHoldADpsBelowItsBar)
+{
+    auto party = BaseParty();
+    party[2].manaPct = 49.0f;   // caster short of 50
+    Result const r = Decide(RoleBarInputs(true), party);
+    EXPECT_TRUE(r.latched);
+    ASSERT_EQ(r.blockers.size(), 1u);
+    EXPECT_EQ(r.blockers[0], 2u);
+}
+
+TEST(DcSmartRestTest, RoleBarsAreTheBossTopOffBars)
+{
+    // At the boss the entry is each role's own release bar, so a DPS at 60 does
+    // not hold a boss pull, and a healer at 75 does.
+    Inputs in = RoleBarInputs(false);
+    in.bossPull = true;
+    auto party = BaseParty();
+    party[2].manaPct = 60.0f;
+    EXPECT_FALSE(Decide(in, party).latched);
+    party[1].manaPct = 75.0f;
+    EXPECT_TRUE(Decide(in, party).latched);
+}
+
+TEST(DcSmartRestTest, RoleBarsReleaseCannotInstantlyRelatch)
+{
+    // Released at the bars, the next evaluation must not latch again: each bar
+    // sits above its role's trigger.
+    auto party = BaseParty();
+    party[0].manaPct = 50.0f;
+    party[1].manaPct = 80.0f;
+    party[2].manaPct = 50.0f;
+    party[4].manaPct = 50.0f;
+    ASSERT_FALSE(Decide(RoleBarInputs(true), party).latched);
+    EXPECT_FALSE(Decide(RoleBarInputs(false), party).latched);
+}

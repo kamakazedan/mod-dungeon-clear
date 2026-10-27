@@ -45,9 +45,13 @@ public:
     //    never trips in healthy pull states — see GetSpreadGate.
     // Dead members are not blocking — the party-died trigger handles them.
     // Callers pass RestMinHpPct()/RestMinMpPct() for the recovery thresholds.
+    // maxSpreadNonHealer (> maxSpread) is the wider spread a member who is not
+    // a healer is held to instead (DungeonClear.PartyMaxSpreadNonHealer, which
+    // GetSpreadGate fills in); 0 = maxSpread for everyone.
     static bool IsPartyReady(Player* bot, float minHpPct, float minMpPct, float maxSpread,
                              Position const* spreadAnchor = nullptr,
-                             float maxTankGap = 0.0f);
+                             float maxTankGap = 0.0f,
+                             float maxSpreadNonHealer = 0.0f);
 
     // The effective inputs of the between-pulls spread check for `bot` right now:
     // the live PartyMaxSpread (waived to "infinite" while a pull maneuver is
@@ -77,6 +81,9 @@ public:
         float maxSpread = 0.0f;
         Position const* anchor = nullptr;  // nullptr = measure against the bot (tank)
         float maxTankGap = 0.0f;           // 0 = no absolute tank cap
+        // The ordinary gate only: the wider spread for members who are not
+        // healers (DungeonClear.PartyMaxSpreadNonHealer). 0 = maxSpread for all.
+        float maxSpreadNonHealer = 0.0f;
     };
     static SpreadGate GetSpreadGate(Player* bot, AiObjectContext* context);
 
@@ -209,7 +216,8 @@ public:
                                              float minHpPct, float minMpPct,
                                              float maxSpread,
                                              Position const* spreadAnchor = nullptr,
-                                             float maxTankGap = 0.0f);
+                                             float maxTankGap = 0.0f,
+                                             float maxSpreadNonHealer = 0.0f);
 
     // Names the living bot party members currently looting (walking to or
     // standing on a corpse), comma-joined and capped like DescribePartyNotReady.
