@@ -211,7 +211,7 @@ namespace DcSmartRest
             if (Group* group = leader->GetGroup())
                 for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
                     if (Player* member = ref->GetSource())
-                        if (member != leader && member->GetMapId() == leader->GetMapId() &&
+                        if (member != leader && member->IsInWorld() && member->GetMap() == leader->GetMap() &&
                             DrinkingToFull(member, leader))
                             DcMovement::StopBot(member, DcMovement::Stop::Hold);
         }

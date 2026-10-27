@@ -315,10 +315,13 @@ bool DungeonClearFollowTankAction::Execute(Event /*event*/)
     // until full, the drink runs out or something fights. The tank waits for it
     // at the party-spread gate like for anyone else trailing. Claims the tick,
     // with no follow generator left to stand it up -- standing is what ends a
-    // drink.
+    // drink. The second's wait is what keeps it seated: after any action whose
+    // next check is under a second away, playerbots stands a bot up unless its
+    // master sits (PlayerbotAI::DoNextAction). Entering combat still wakes it.
     if (DcSmartRest::DrinkingToFull(bot, tank))
     {
         DcMovement::StopBot(bot, DcMovement::Stop::Hold);
+        botAI->SetNextCheckDelay(1000);
         followedTank = tank->GetGUID();
         DcFollowerLifecycle::MarkFollowing(bot->GetGUID());
         LOG_DEBUG("playerbots.dungeonclear",
