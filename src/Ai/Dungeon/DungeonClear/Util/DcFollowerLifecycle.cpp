@@ -407,6 +407,12 @@ void DcFollowerLifecycle::RemoveFollowerPassive(Player* follower)
         DC_PULL_DEBUG("[DC:{}] advanced-pull: released from passive", follower->GetName());
     }
 }
+bool DcFollowerLifecycle::HoldsWithStay(ObjectGuid player)
+{
+    std::lock_guard<std::mutex> lock(g_dcPassiveMutex);
+    return g_dcHealerStayStates.count(player) != 0;
+}
+
 void DcFollowerLifecycle::ReapStrandedPassives()
 {
     // Apply any due pet releases first: these persist after the owner has been

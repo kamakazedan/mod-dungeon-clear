@@ -63,6 +63,15 @@ public:
 
     static void ReapStrandedPassives();
 
+    // True while a healer is held at camp for a pull with the "stay" pin above
+    // (whether DC added the strategy or found one there). Other code that clears
+    // stays -- a module taking staying bots along when a run starts -- leaves
+    // these alone: the release above takes the pin off when the pull is done.
+    // Thread-safe. DC_FOLLOWER_LIFECYCLE_HOLDS_WITH_STAY says it exists.
+    static bool HoldsWithStay(ObjectGuid player);
+
 };
+
+#define DC_FOLLOWER_LIFECYCLE_HOLDS_WITH_STAY 1
 
 #endif  // _DC_FOLLOWER_LIFECYCLE_H
