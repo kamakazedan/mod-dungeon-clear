@@ -389,6 +389,19 @@ namespace DcEventDoorRegistry
             //     openable blocker.
             case 175946:  // Upper Blackrock Spire — Drakkisath's door 1 (opens on his death)
             case 175947:  // Upper Blackrock Spire — Drakkisath's door 2 (opens on his death)
+            // Blackfathom Deeps (map 48) — the Portal of Aku'mai (21117, type 0
+            // door, lock 85, flags LOCKED|NODESPAWN, spawns READY at
+            // (-818.4,-200.6,-25.8)). Lock 85 is the shared "empty lock" that
+            // plenty of plainly clickable doors carry, which is exactly why this
+            // registry is keyed by entry: instance_blackfathom_deeps opens it ONLY
+            // when all four Fires of Aku'mai (21118-21121) read DONE and every
+            // wave summon they produced is dead (HandleGameObject on
+            // _requiredDeaths reaching 0). Nothing else ever does. A bot click
+            // would desync the client's shut door and skip the fire event the
+            // "Light the Fires of Aku'mai" objective (map 48 event 5) drives;
+            // without this entry boss-nav toward Aku'mai meets a LOCKED door and
+            // auto-pauses the run at the portal instead.
+            case 21117:   // Blackfathom Deeps — Portal of Aku'mai (opens on the last wave's death)
                 return true;
             default:
                 return false;

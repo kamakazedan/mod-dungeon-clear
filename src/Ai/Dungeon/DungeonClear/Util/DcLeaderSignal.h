@@ -14,6 +14,7 @@
 
 class Creature;
 class Player;
+struct DungeonEvent;
 
 class DcLeaderSignal
 {
@@ -105,6 +106,15 @@ public:
     // DropInHole and the leader has not yet landed) — no manual flag to go stale.
     // False for the leader itself and off runs. Pass any group member.
     static bool IsLeaderDroppingInHole(Player* bot);
+
+    // The PARTY-WIDE event (DungeonEvent::partyWide) `bot`'s elected leader is
+    // driving right now — its active anchored event, started (progress points
+    // at it) — or nullptr. The follower chain driver (DcPartyWideChain::
+    // DriveFollower) adopts the chain off this signal and keeps its own copy of
+    // the pointer afterwards, so the signal going quiet when the leader's
+    // objective latches never strands a follower mid-chain. Derived live, no
+    // flag to go stale; false for the leader itself and off/paused runs.
+    static DungeonEvent const* GetLeaderPartyWideChain(Player* bot);
 
     // The live NPC the group is currently escorting, or nullptr when no escort is
     // active. Resolves `bot`'s elected leader, confirms its active anchored-event

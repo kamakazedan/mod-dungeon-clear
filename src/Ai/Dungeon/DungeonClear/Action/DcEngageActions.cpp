@@ -56,6 +56,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcDoorPolicy.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcLeaderSignal.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcMovement.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcPartyWideChain.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcPackLeashDecision.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcPartyState.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcBreadcrumb.h"
@@ -1711,6 +1712,72 @@ bool DungeonClearEngageActionBase::DriveEscortCreature(EventStep const& step,
     return true;
 }
 
+bool DungeonClearEngageActionBase::DriveChainStep(DungeonEvent const& ev, EventStep const& step,
+                                                  DungeonEventProgress& prog)
+{
+    if (!bot)
+        return false;
+
+    DcChainState& st = context->GetValue<DcChainState&>(DcKey::ChainState)->Get();
+    uint32 const now = getMSTime();
+    if (st.eventId != ev.id || st.mapId != ev.mapId || st.instanceId != bot->GetInstanceId())
+    {
+        st.Reset();
+        st.ev = &ev;
+        st.eventId = ev.id;
+        st.mapId = ev.mapId;
+        st.instanceId = bot->GetInstanceId();
+        st.startedMs = now;
+        st.stepIndex = prog.stepIndex;
+        st.BeginStep(now);
+        LOG_INFO("playerbots.dungeonclear",
+                 "[DC:{}] chain '{}': leader starting the chain from ({:.1f},{:.1f},{:.1f})",
+                 bot->GetName(), ev.name, bot->GetPositionX(), bot->GetPositionY(),
+                 bot->GetPositionZ());
+    }
+    // The leader's step pointer is the event progress; keep the scratch in step.
+    if (st.stepIndex != prog.stepIndex)
+    {
+        st.stepIndex = prog.stepIndex;
+        st.BeginStep(now);
+    }
+
+    switch (DcPartyWideChain::DriveStep(bot, botAI, context, ev, step, st))
+    {
+        case DcPartyWideChain::StepOutcome::Running:
+            SetPhase(context, step.swim ? "swimming" : "objective");
+            ClearStall(context);
+            return true;
+        case DcPartyWideChain::StepOutcome::Done:
+            return false;  // Drive -> RunStep gates Done (and the straggler wait)
+        case DcPartyWideChain::StepOutcome::Fell:
+            // Back at the start: re-run the chain from step 0 (the fall handler
+            // already teleported the bot there, or finalised it on the landing).
+            prog.stepIndex = st.done ? static_cast<uint32>(ev.steps.size()) : 0;
+            prog.attempts = 0;
+            prog.stepStartMs = now;
+            st.stepIndex = prog.stepIndex;
+            SetPhase(context, "objective");
+            return true;
+        case DcPartyWideChain::StepOutcome::Stalled:
+            if (DcPartyWideChain::HandleAsFall(bot, ev, st, prog.stepIndex))
+            {
+                prog.stepIndex = st.done ? static_cast<uint32>(ev.steps.size()) : 0;
+                prog.attempts = 0;
+                prog.stepStartMs = now;
+                st.stepIndex = prog.stepIndex;
+                return true;
+            }
+            StallDungeonClear(botAI,
+                              step.swim ? "Tried to swim the passage but got stuck underwater. "
+                                          "Use 'dc skip' to move on."
+                                        : "Got stuck on the crossing at " + ev.name +
+                                              ". Use 'dc skip' to move on.");
+            return true;
+    }
+    return false;
+}
+
 bool DungeonClearEngageActionBase::DriveDropInHole(EventStep const& step)
 {
     if (!bot)
@@ -2281,6 +2348,17 @@ bool DcObjectiveArriveAction::Execute(Event /*event*/)
             else if (step.kind == EventStepKind::DropInHole)
             {
                 if (DriveDropInHole(step))
+                    return true;
+            }
+            // RawPath, and every movement step of a PARTY-WIDE chain: the same
+            // argument — the raw spline / stone hop must not be cancelled by the
+            // Hold below. DriveChainStep returns false once the step is complete,
+            // so we fall through to Drive and RunStep's gate (the straggler wait
+            // on the last movement step) latches it.
+            else if (step.kind == EventStepKind::RawPath ||
+                     (ev->partyWide && IsMovementStepKind(step.kind)))
+            {
+                if (DriveChainStep(*ev, step, prog))
                     return true;
             }
             // UseItemOnGO: OWN THE TICK to drive the approach to the target GO with

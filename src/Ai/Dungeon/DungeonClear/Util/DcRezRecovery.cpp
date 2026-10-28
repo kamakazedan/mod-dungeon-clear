@@ -162,6 +162,7 @@ namespace
             m.isTankRole = PlayerbotAI::IsTank(member);
             m.isBot = GET_PLAYERBOT_AI(member) != nullptr;
             m.corpseUnsafe = m.isDead && CorpseAmongIdleHostiles(member);
+            m.isLeader = owner && member == owner;
             out.push_back(m);
             players.push_back(member);
         };
@@ -396,7 +397,7 @@ namespace
         // time the run out on the spot.
         bool allCorpsesUnsafe = true;
         for (Member const& m : members)
-            if (m.isDead && !m.corpseUnsafe)
+            if (m.isDead && !DcRezDecision::SkipAsUnsafe(m))
                 allCorpsesUnsafe = false;
         bool const partyEngaged = AnyMemberEngaged(players);
         if (mutate)
@@ -654,6 +655,12 @@ namespace DcRezRecovery
         if (!run.enabled || run.paused)
             return false;
 
+        // A dead leader is always a recovery in progress: no stand-down applies to the
+        // corpse the run is driven from (DcRezDecision::LeaderCorpse), so neither may
+        // the block's clock below release the hold over it.
+        if (leaderTank->isDead())
+            return true;
+
         // THE ONE CLOCK READ THIS PREDICATE MAKES, and it is here to stop a hold that
         // can never end. When the instance refuses every resurrect (see
         // RezBlockedByInstance) a corpse is not a recovery in progress, it is just a
@@ -668,8 +675,6 @@ namespace DcRezRecovery
             getMSTime() - run.rezBlockedSinceMs >= DC_REZ_BLOCKED_HOLD_MAX_MS)
             return false;
 
-        if (leaderTank->isDead())
-            return true;
         Group* group = leaderTank->GetGroup();
         if (!group)
             return false;

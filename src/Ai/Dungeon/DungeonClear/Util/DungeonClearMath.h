@@ -668,9 +668,38 @@ namespace DungeonClearMath
     // force-clear combat in the middle of a legitimate boss fight, which is the
     // one outcome the breaker's raid stand-down exists to prevent. TRIGGER is a
     // permanent property of the creature template; selectable is encounter state.
-    inline bool IsUnresolvableCombatHolder(bool isCreature, bool isTrigger)
+    //
+    // UNFLAGGED SCRIPT HELPERS are listed by entry instead. Each row is a creature
+    // that is unselectable by template, never by encounter state, but carries no
+    // TRIGGER flag — so the airtight test above misses it. Keep every row justified.
+    //   17161 Blizzard (Shade of Aran): a STATIC spawn the Aran fight only switches
+    //         on, so it outlives Aran and keeps flagging the raid. Teardown of
+    //         tr-20261022-104155-559 read `Blizzard (Shade of Aran) 17161 7.5yd
+    //         reach LEGIT` over three members for 199s; the leader-assist fallback
+    //         walked the tank at them until the Netherspite leg stalled.
+    inline bool IsUnflaggedScriptHelper(uint32 entry)
     {
-        return isCreature && isTrigger;
+        switch (entry)
+        {
+            case 17161:  // Blizzard (Shade of Aran), Karazhan
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // Leader-assist groupmate fallback, with hysteresis (DC_LEADER_ASSIST_COLOCATED_
+    // RELEASE): yield inside `colocated`, and keep yielding out to `release` for the
+    // member the rung last yielded beside. True = yield the tick to the ladder.
+    inline bool LeaderAssistFallbackYields(float memberDist, bool latchedOnMember,
+                                           float colocated, float release)
+    {
+        return memberDist <= colocated || (latchedOnMember && memberDist <= release);
+    }
+
+    inline bool IsUnresolvableCombatHolder(bool isCreature, bool isTrigger, uint32 entry = 0)
+    {
+        return isCreature && (isTrigger || IsUnflaggedScriptHelper(entry));
     }
 
     // "Can this follower attack from where it stands?" for the camp-assist handoff,

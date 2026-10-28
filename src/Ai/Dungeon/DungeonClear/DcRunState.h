@@ -11,12 +11,15 @@
 #include <cstdlib>
 #include <string>
 #include <utility>
+#include <unordered_map>
 #include <vector>
 
+#include "G3D/Vector3.h"
 #include "ObjectGuid.h"
 #include "Timer.h"
 
 #include "Ai/Dungeon/DungeonClear/Util/DcChessConductor.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcProgressWatchdog.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRunProgress.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRunWing.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcThrottle.h"
@@ -543,6 +546,43 @@ struct DcRunState
     // it is copied into the harness once a second.
     uint32 eventProgressSeq = 0;
     std::vector<DcTestExtra> testExtras;
+
+    // PartyWide chain falls this run (DcPartyWideChain::HandleFall): every time
+    // a bot ended up in an event's fall volume. Published as the `chainFalls`
+    // test extra and in the DcDiag snapshot; zero across a batch is the proof
+    // the stone coordinates are right.
+    uint32 chainFalls = 0;
+
+    // Blackfathom Deeps' Forgotten Pool exit (BlackfathomDeepsEvents.cpp): the
+    // swim leg from where the tank fell in to the ramp, its cursor, progress
+    // watchdog and wedge count. Built on the event's first tick, dropped when it
+    // ends. `poolExits` counts the climbs this run, published as the `poolExits`
+    // test extra.
+    std::vector<G3D::Vector3> poolExitLeg;
+    uint32 poolExitCursor = 0;
+    uint32 poolExitWedges = 0;
+    DcProgressWatchdog poolExitWatch;
+    uint32 poolExits = 0;
+
+    // Stratholme's trap-alley pit rescues this run (StratholmeEvents.cpp,
+    // DcStratTrapAlley.h), published as the `stratPitRescues` test extra.
+    uint32 stratPitRescues = 0;
+
+    // Karazhan's library-pit rescues this run (KarazhanEvents.cpp,
+    // DcKaraLibraryPit.h), published as the `karaPitRescues` test extra.
+    uint32 karaPitRescues = 0;
+
+    void ClearPoolExit()
+    {
+        poolExitLeg.clear();
+        poolExitCursor = 0;
+        poolExitWedges = 0;
+        poolExitWatch.Reset();
+    }
+
+    // Breath watchdog stamps (DcBreathProvision::WatchdogTick): member guid ->
+    // getMSTime() it was first seen under water; erased the tick it surfaces.
+    std::unordered_map<uint64, uint32> underwaterSinceMs;
 
     void BumpEventProgress() { ++eventProgressSeq; }
 

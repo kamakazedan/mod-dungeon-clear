@@ -14,6 +14,7 @@
 #include "Ai/Dungeon/DungeonClear/Overrides/BossRosterRegistry.h"
 #include "Ai/Dungeon/DungeonClear/Overrides/ObjectiveHookRegistry.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcDifficulty.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcKaraLibraryPit.h"
 #include "TestRun/DcTestDungeonRegistry.h"
 
 // Karazhan (map 532). The ten derived anchors come from BossSpawnIndex at runtime;
@@ -436,4 +437,35 @@ TEST(DcKarazhanTest, TheChessScenarioPlaysTheChessObjective)
     DcTestDungeonRegistry::Row const* whole = DcTestDungeonRegistry::Find("532");
     ASSERT_NE(whole, nullptr);
     EXPECT_STREQ(whole->token, "kara");
+}
+
+// ---- the void under the Guardian's Library (event 4, hook 65) ----------------------
+//
+// tr-20261022-194409-1044: the tank went through the library floor at the stair foot
+// and ended on unlinked castle-shell navmesh under Illhoof. Points from that run.
+TEST(DcKarazhanTest, LibraryPitBoxHoldsTheFallAndNotTheLibrary)
+{
+    using DcKaraLibraryPit::InPit;
+    EXPECT_TRUE(InPit(-11244.8f, -1879.7f, 107.4f));   // the landing under the stair foot
+    EXPECT_TRUE(InPit(-11203.2f, -1729.7f, 119.1f));   // where it wandered, under Illhoof
+    EXPECT_TRUE(InPit(-11205.0f, -1735.0f, 121.9f));   // the member teleported down to it
+
+    EXPECT_FALSE(InPit(-11244.2f, -1879.0f, 136.0f));  // the library floor it fell from
+    EXPECT_FALSE(InPit(-11210.0f, -1885.4f, 152.2f));  // the stair-top camp
+    EXPECT_FALSE(InPit(-11240.6f, -1704.3f, 179.3f));  // Illhoof
+    EXPECT_FALSE(InPit(-11170.0f, -1910.0f, 91.8f));   // the z~92 interior corridor east of it
+    EXPECT_FALSE(InPit(-11137.0f, -1917.3f, 49.8f));   // the stables
+
+    // The landing is out of the box, or the rescue would re-fire on arrival.
+    EXPECT_FALSE(InPit(DcKaraLibraryPit::LANDING_X, DcKaraLibraryPit::LANDING_Y, DcKaraLibraryPit::LANDING_Z));
+}
+
+TEST(DcKarazhanTest, LibraryPitRescueEventShape)
+{
+    DungeonEvent const* ev = DungeonEventRegistry::Find(MAP, DcKaraLibraryPit::EVENT_PIT_RESCUE);
+    ASSERT_NE(ev, nullptr);
+    ASSERT_EQ(ev->steps.size(), 1u);
+    EXPECT_EQ(ev->steps[0].hookId, DcKaraLibraryPit::HOOK_PIT_RESCUE);
+    EXPECT_EQ(ev->steps[0].kind, EventStepKind::Custom);
+    EXPECT_TRUE(ObjectiveHookRegistry::Has(DcKaraLibraryPit::HOOK_PIT_RESCUE));
 }

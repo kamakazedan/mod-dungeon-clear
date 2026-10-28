@@ -848,9 +848,11 @@ namespace
             RegisterTrialOfTheChampionHooks(t);
             RegisterOculusHooks(t);
             RegisterKarazhanChessHooks(t);
+            RegisterKarazhanHooks(t);
             RegisterStratholmeHooks(t);
             RegisterBlackrockDepthsHooks(t);
             RegisterBlackrockSpireHooks(t);
+            RegisterBlackfathomDeepsHooks(t);
             return t;
         }();
         return kHooks;

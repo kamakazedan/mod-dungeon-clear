@@ -3643,3 +3643,29 @@ TEST(DungeonClearRoomTrashTest, TheStandWalkRoundsAPackOnlyOnItsOwnFloor)
     EXPECT_TRUE(DungeonClearMath::StandWalkRoundsPack(-92.6f, -91.9f, 5.0f));
     EXPECT_TRUE(DungeonClearMath::StandWalkRoundsPack(-90.0f, -85.0f, 5.0f));
 }
+
+// Blizzard (Shade of Aran) is a template-unselectable static spawn with no TRIGGER
+// flag: it outlives Aran and held three Karazhan members flagged for 199s, read as a
+// LEGIT holder (tr-20261022-104155-559).
+TEST(DungeonClearStuckCombatTest, UnflaggedScriptHelpersAreUnresolvableByEntry)
+{
+    EXPECT_TRUE(DungeonClearMath::IsUnresolvableCombatHolder(true, false, 17161));
+    // Only creatures, and only listed entries.
+    EXPECT_FALSE(DungeonClearMath::IsUnresolvableCombatHolder(false, false, 17161));
+    EXPECT_FALSE(DungeonClearMath::IsUnresolvableCombatHolder(true, false, 16524));  // Aran himself
+}
+
+// The leader-assist groupmate fallback's hysteresis. Unlatched it is the plain
+// co-located threshold; latched on the member it just yielded beside, it holds out
+// to the release band, so a follower trailing the tank at 5-6yd can no longer flip
+// the rung every tick (tr-20261022-104155-559 / -193320-1035).
+TEST(DungeonClearLeaderAssistTest, GroupmateFallbackHasHysteresis)
+{
+    float const in = 5.0f, out = 15.0f;
+    EXPECT_TRUE(DungeonClearMath::LeaderAssistFallbackYields(4.2f, false, in, out));
+    EXPECT_FALSE(DungeonClearMath::LeaderAssistFallbackYields(5.6f, false, in, out));
+    EXPECT_TRUE(DungeonClearMath::LeaderAssistFallbackYields(5.6f, true, in, out));
+    EXPECT_TRUE(DungeonClearMath::LeaderAssistFallbackYields(15.0f, true, in, out));
+    // A real round-the-corner distance walks again.
+    EXPECT_FALSE(DungeonClearMath::LeaderAssistFallbackYields(15.1f, true, in, out));
+}

@@ -7,6 +7,7 @@
 #define _PLAYERBOT_DUNGEONBOSSINFO_H
 
 #include <string>
+#include <vector>
 
 #include "Common.h"
 
@@ -18,6 +19,14 @@ enum class DungeonAnchorKind : uint8
 {
     Boss,
     Objective,
+};
+
+// One spawn point of a boss entry (see DungeonBossInfo::spawns).
+struct DcSpawnPoint
+{
+    float x{0.0f};
+    float y{0.0f};
+    float z{0.0f};
 };
 
 struct DungeonBossInfo
@@ -111,7 +120,32 @@ struct DungeonBossInfo
     // the per-run `dc skip` set this is data, not player state: it applies to
     // every run of the map. Stamped by a BossRosterPatch::skipByDesign entry.
     bool skipByDesign{false};
+
+    // EVERY spawn point of this entry on the map, in creature_data order, when
+    // there is more than one — x/y/z above hold the first. BossSpawnIndex dedups
+    // the derived roster by entry (one anchor per boss), and for most bosses that
+    // is the whole story. A boss placed as a POOL (one spawn of several rolled
+    // per instance — Blackfathom Deeps' Lorgus Jett under mod-individual-
+    // progression: pool 601052, max 1 of three guids 120yd apart) is the case it
+    // is not: the anchor may point at an empty spawn point while the live boss
+    // stands at another. DungeonBossesValue resolves the live one per instance
+    // (ResolveLiveSpawn). Empty for the ordinary single-spawn boss.
+    std::vector<DcSpawnPoint> spawns;
 };
+
+// Pick, among a boss's spawn points, the one the LIVE creature stands at —
+// `isAliveNear(x,y,z)` answers whether a living creature of the entry is within
+// a few yards of that point — falling back to the first spawn when none matches
+// (not yet loaded, already dead, or a single-spawn boss). Pure, so the pool
+// resolution is unit-tested without a world. Returns the index into `spawns`.
+template <typename IsAliveNear>
+inline size_t ResolveLiveSpawn(std::vector<DcSpawnPoint> const& spawns, IsAliveNear const& isAliveNear)
+{
+    for (size_t i = 0; i < spawns.size(); ++i)
+        if (isAliveNear(spawns[i].x, spawns[i].y, spawns[i].z))
+            return i;
+    return 0;
+}
 
 // The value the clear ORDERS an anchor by: the explicit orderOverride when set,
 // else the DBC encounterIndex. Completion detection never uses this — it keys on

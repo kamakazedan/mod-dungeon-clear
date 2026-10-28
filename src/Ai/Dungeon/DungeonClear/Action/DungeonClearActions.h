@@ -210,6 +210,18 @@ protected:
     // through to Drive and RunStep's gate pulls the followers down + latches.
     bool DriveDropInHole(EventStep const& step);
 
+    // Drive ONE movement step of a PARTY-WIDE event (or any RawPath step) for the
+    // LEADER from its own position: a raw polyline spline, a stone-to-stone
+    // MoveJump, or a short MoveTo, through DcPartyWideChain::DriveStep with the
+    // leader's chain record for the cursor/watchdog. Owns the tick (returns true)
+    // while the step is in flight so the at-objective StopBot(Hold) cannot cancel
+    // the off-mesh spline (the DropInHole argument); returns false once the step
+    // reports Done, so the caller falls through to Drive and RunStep's gate — the
+    // straggler wait on the last movement step — latches it. A fall (the event's
+    // fall volume) rewinds `prog` to step 0 after the handler's teleport; a double
+    // wedge on a chain without a fall volume stalls the run for `dc skip`.
+    bool DriveChainStep(DungeonEvent const& ev, EventStep const& step, DungeonEventProgress& prog);
+
     // Drive a UseItemOnGO step's APPROACH (Old Hillsbrad's barrels, one inside each
     // house). Owns the tick (returns true) while walking the tank to the target GO
     // via the DC movement system, because the normal at-objective StopBot(Hold)
@@ -1076,6 +1088,11 @@ public:
     {
     }
     bool Execute(Event event) override;
+
+private:
+    // The flagged groupmate the groupmate fallback last yielded beside — the latch
+    // half of DC_LEADER_ASSIST_COLOCATED_RELEASE's hysteresis.
+    ObjectGuid _colocatedFighter;
 };
 
 #endif

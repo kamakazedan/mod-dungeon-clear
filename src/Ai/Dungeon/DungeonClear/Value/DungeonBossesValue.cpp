@@ -15,6 +15,7 @@
 #include "Ai/Dungeon/DungeonClear/Data/DungeonWingRegistry.h"
 #include "Ai/Dungeon/DungeonClear/Overrides/BossRosterRegistry.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRunWing.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcTargeting.h"
 #include "Ai/Dungeon/DungeonClear/Util/NavmeshSnap.h"
 #include "Playerbots.h"
 
@@ -207,6 +208,45 @@ namespace
 
 namespace
 {
+    // A boss with MORE THAN ONE spawn point on the map (DungeonBossInfo::spawns)
+    // is anchored on whichever of them has a LIVE creature of the entry standing
+    // within DC_POOL_SPAWN_MATCH yards; the first spawn otherwise. This is what
+    // makes a pooled boss walkable: mod-individual-progression puts Blackfathom
+    // Deeps' Lorgus Jett in a 1-of-3 pool whose points are up to 170yd apart,
+    // and BossSpawnIndex's first-spawn anchor would send the party to an empty
+    // spot while he stands at another. Re-evaluated every roster build (the
+    // value is per tick), so a boss that only streams in later is picked up
+    // the moment his grid loads; once he is dead the fallback is harmless — the
+    // kill-bit completes the anchor wherever it points.
+    constexpr float DC_POOL_SPAWN_MATCH = 10.0f;
+
+    std::vector<DungeonBossInfo> ResolveLiveSpawns(Player* bot, std::vector<DungeonBossInfo> bosses)
+    {
+        for (DungeonBossInfo& info : bosses)
+        {
+            if (info.spawns.size() < 2 || info.kind != DungeonAnchorKind::Boss)
+                continue;
+            Creature* live = DcTargeting::FindLiveCreatureOnMap(bot, info.entry);
+            if (!live)
+                continue;
+            size_t const idx = ResolveLiveSpawn(
+                info.spawns, [live](float x, float y, float z)
+                { return live->GetExactDist(x, y, z) <= DC_POOL_SPAWN_MATCH; });
+            DcSpawnPoint const& at = info.spawns[idx];
+            if (at.x == info.x && at.y == info.y && at.z == info.z)
+                continue;
+            LOG_DEBUG("playerbots.dungeonclear",
+                      "[dungeon-clear] map {} boss {} '{}' is a pooled spawn — live at spawn "
+                      "{} of {} ({:.1f},{:.1f},{:.1f}), re-anchoring",
+                      info.mapId, info.entry, info.name, idx + 1, info.spawns.size(),
+                      at.x, at.y, at.z);
+            info.x = at.x;
+            info.y = at.y;
+            info.z = at.z;
+        }
+        return bosses;
+    }
+
     // Calculate()'s pipeline up to (not including) the wing filter.
     std::vector<DungeonBossInfo> BuildRoster(Player* bot)
     {
@@ -225,7 +265,10 @@ namespace
 
         // Per-team entry rewrite for bosses the instance script UpdateEntry's to the
         // opposing faction's creature (The Nexus' Frozen Commander).
-        return ApplyFactionEntrySwaps(bot, mapId, std::move(roster));
+        roster = ApplyFactionEntrySwaps(bot, mapId, std::move(roster));
+
+        // Pooled bosses: anchor on the spawn point the live creature stands at.
+        return ResolveLiveSpawns(bot, std::move(roster));
     }
 }
 

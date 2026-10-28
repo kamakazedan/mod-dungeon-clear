@@ -1061,10 +1061,25 @@ DungeonClearAdvanceAction::Step DungeonClearAdvanceAction::DoStuckRecover(Advanc
             DcStatusPublisher::SendAddonMessage(botAI, "CHAT\tRepathing around " + next->name + " \xe2\x80\x94 nudging onto the navmesh.");
             return Step::ReturnTrue;
         }
+        // The third dead-end that never reached the swim: "path didn't make
+        // forward progress" is the classification a submerged tunnel produces
+        // when the surface sheet IS meshed but ends at the water (the auto-
+        // detect swim is the fallback for an off anchor on the authored legs,
+        // which is exactly when it earns its keep). Same water-between verdict
+        // as the other two sites.
+        uint32 const nudges = appr.nudgeAttempts;
+        appr.nudgeAttempts = 0;
+        if (TryBeginSwim(bot, context, next->entry, st.bossX, st.bossY, st.bossZ))
+        {
+            LOG_INFO("playerbots.dungeonclear",
+                     "[DC:{}] stuck ladder exhausted near {} with water between -> swimming",
+                     bot->GetName(), next->name);
+            SetPhase(context, "swimming");
+            return Step::ReturnTrue;
+        }
         LOG_INFO("playerbots.dungeonclear",
                  "[DC:{}] stuck ladder exhausted near {} ({} nudge(s) bought no ground) -> stalling",
-                 bot->GetName(), next->name, appr.nudgeAttempts);
-        appr.nudgeAttempts = 0;
+                 bot->GetName(), next->name, nudges);
         StallDungeonClear(botAI,
             "Stuck near " + next->name + " — not making forward progress. "
             "I'll try to clear nearby mobs; use 'dc skip' if it persists.");

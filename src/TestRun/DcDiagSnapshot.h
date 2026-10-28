@@ -214,6 +214,12 @@ namespace DcDiag
         std::uint32_t dcTickAgeMs = 0;
         bool dcTickSeen = false;
 
+        // Seconds under water per the run's breath watchdog stamps
+        // (DcBreathProvision::WatchdogTick); 0 when surfaced or untracked. The
+        // Blackfathom Deeps swims are the first content where a party member can
+        // drown, and "where was everyone" is not enough to read a drowning.
+        std::uint32_t uwSec = 0;
+
         // --- combat blame (populated only while inCombat) ------------------
         // WHICH ENGINE the bot is actually running, which is a different
         // question from whether it is FLAGGED. `drop target` (stock, relevance
@@ -324,6 +330,9 @@ namespace DcDiag
         std::uint32_t inCombatCount = 0;
         std::uint32_t clearedAnchors = 0;
         std::uint32_t skippedCount = 0;
+        // Party-wide chain falls this run (DcRunState::chainFalls): a bot in a
+        // chain's fall volume. Zero across a batch proves the stone coordinates.
+        std::uint32_t chainFalls = 0;
 
         // The tank's own heartbeat, mirrored out of its member row so the
         // one-line Summarize can carry it. See MemberSnapshot::dcTickAgeMs.

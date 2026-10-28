@@ -62,7 +62,30 @@ namespace DcRezDecision
         // so a bot rezzer walking to it walks into an unpulled pack. See the
         // UnsafeStandDown branch in Decide.
         bool corpseUnsafe = false;
+        // The run's owner — the bot whose ladder drives the whole run. Both stand-
+        // downs below mean "carry on short-handed", and with THIS member the corpse
+        // nobody can carry on: the run only ticks on its leader. See LeaderCorpse.
+        bool isLeader = false;
     };
+
+    // A corpse the recovery skips because walking to it walks into an unpulled pack.
+    // Never the leader's: standing down over it leaves nobody to carry on — in
+    // Karazhan tr-20261022-063440-343 the tank died in the Attumen stables beside an
+    // idle Midnight, the verdict read "carrying on without them", and nine living
+    // members stood over the body for 600s until no_progress ended the run. The rez
+    // is the only way the run resumes, and the recovery timeout still bounds it.
+    inline bool SkipAsUnsafe(Member const& m)
+    {
+        return m.isDead && m.corpseUnsafe && !m.isLeader;
+    }
+
+    inline bool LeaderCorpse(std::vector<Member> const& members)
+    {
+        for (Member const& m : members)
+            if (m.isDead && m.isLeader)
+                return true;
+        return false;
+    }
 
     struct Inputs
     {
@@ -160,7 +183,7 @@ namespace DcRezDecision
             int firstDead = -1, deadTank = -1;
             for (std::size_t i = 0; i < members.size(); ++i)
             {
-                if (!members[i].isDead || (skipUnsafe && members[i].corpseUnsafe))
+                if (!members[i].isDead || (skipUnsafe && SkipAsUnsafe(members[i])))
                     continue;
                 if (members[i].isHealerRole)
                     return static_cast<int>(i);
@@ -188,7 +211,7 @@ namespace DcRezDecision
             for (std::size_t i = 0; i < members.size(); ++i)
             {
                 Member const& m = members[i];
-                if (!m.isDead || m.corpseUnsafe)
+                if (!m.isDead || SkipAsUnsafe(m))
                     continue;
                 if (healerPass != m.isHealerRole)
                     continue;
@@ -302,10 +325,15 @@ namespace DcRezDecision
         // recovery (or the classic disable) resumes.
         if (in.rezBlocked)
         {
+            // ...except over the leader's corpse: short-handed needs a leader standing
+            // to drive the run (tr-20261022-020358-103, the tank dead on Attumen). Hold
+            // until the encounter releases the spell — a boss fight ends in a kill or
+            // a wipe, and the ordinary election below takes over the moment it does.
             bool const blockOutlivedTheWait =
-                in.blockedHoldMaxMs == 0 ||
-                (in.blockedSinceMs != 0 && in.nowMs >= in.blockedSinceMs &&
-                 (in.nowMs - in.blockedSinceMs) >= in.blockedHoldMaxMs);
+                !LeaderCorpse(members) &&
+                (in.blockedHoldMaxMs == 0 ||
+                 (in.blockedSinceMs != 0 && in.nowMs >= in.blockedSinceMs &&
+                  (in.nowMs - in.blockedSinceMs) >= in.blockedHoldMaxMs));
             r.targetIdx = PickTarget(members);
             r.outcome = blockOutlivedTheWait ? Outcome::None : Outcome::Hold;
             r.reason = blockOutlivedTheWait ? Reason::BlockedStandDown
@@ -415,7 +443,7 @@ namespace DcRezDecision
         {
             bool anySafeCorpse = false;
             for (Member const& m : members)
-                anySafeCorpse = anySafeCorpse || (m.isDead && !m.corpseUnsafe);
+                anySafeCorpse = anySafeCorpse || (m.isDead && !SkipAsUnsafe(m));
             if (!anySafeCorpse)
             {
                 r.targetIdx = PickTarget(members);

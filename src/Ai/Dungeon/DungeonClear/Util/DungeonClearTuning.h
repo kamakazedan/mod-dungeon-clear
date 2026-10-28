@@ -341,6 +341,16 @@ constexpr float DC_ENGAGEMENT_RADIUS = 100.0f;
 // assist is tens of yards, and the failure this bounds was measured at 0.0yd.
 constexpr float DC_LEADER_ASSIST_COLOCATED_RANGE = 5.0f;
 
+// ...and how far that same groupmate has to drift back out before the fallback may
+// walk at them again. Without the gap the threshold is a ping-pong: the flagged
+// member FOLLOWS the tank, so the tank yields at 4.9yd, Advance moves it, the member
+// trails to 5.1yd, the fallback claims the tick at MOVEMENT_COMBAT and walks it back
+// — the two moves cancel and the tank stands still. Karazhan tr-20261022-104155-559
+// and -193320-1035 alternated `closing on party fight (5.6yd)` / `nearest flagged
+// member is 4.2yd away` until the stuck ladder stalled the Netherspite leg. Wide
+// enough to swallow a follower's trailing lag; a real corner is tens of yards.
+constexpr float DC_LEADER_ASSIST_COLOCATED_RELEASE = 15.0f;
+
 // Half-width of the capsule around a NO_STOP route leg within which the pull
 // system stands down (DcNoStopZone). Wide enough to cover a raid's natural
 // spread across the corridor and the wobble of a party that has just fought,

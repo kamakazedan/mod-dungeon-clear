@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "Common.h"
+#include "G3D/Vector3.h"
 #include "SharedDefines.h"  // TeamId
 
 #include "Ai/Dungeon/DungeonClear/Data/DcDifficultyGate.h"
@@ -176,6 +177,81 @@ enum class EventStepKind : uint8
                              //
                              // `spellId` is the item's use-spell, kept (as in
                              // UseItemOnGO) for the cooldown probe and the log line.
+    RawPath,                 // Drive an AUTHORED POLYLINE verbatim — a raw
+                             // MoveSplinePath through `path`, no per-point navmesh
+                             // pathing, no UpdateAllowedPositionZ — from wherever the
+                             // bot stands to the last point. The off-mesh primitive
+                             // for a leg the navmesh does not carry: a 1yd-wide rock
+                             // rim the mesh never baked (Blackfathom Deeps' entrance
+                             // stones), or a submerged passage between two surface
+                             // sheets (.Swim(): the same step through water, where the
+                             // breath watchdog and the druid aquatic-form veto apply).
+                             // The preceding MoveTo/anchor must place the bot ON the
+                             // polyline's start; the points are then consumed by 3D
+                             // proximity (DcRawPathDrive) and the step is Done within
+                             // `radius` of the last point — idempotent across a
+                             // restart. DRIVEN by the action (DriveChainStep owns the
+                             // tick so the at-objective Hold cannot cancel the raw
+                             // spline, exactly as DropInHole); RunStep is the pure
+                             // completion gate. A watchdog re-issues the spline from
+                             // the cursor after 6s without 3D progress, and a second
+                             // wedge stalls the run (swim) or hands the bot to the
+                             // event's fall handler (stones). Anchored+Persistent
+                             // only: the leg is one-way and a rewind would re-run
+                             // the MoveTo toward a start the bot can no longer reach.
+    EnsureWaterBreathing,    // GATE: every BOT in the party carries a water-breathing
+                             // aura (SPELL_AURA_WATER_BREATHING — what the core's
+                             // HandleDrowning checks). The leader provisions it per
+                             // member from the first source that applies — a shaman's
+                             // Water Breathing (131), a warlock's Unending Breath
+                             // (5697), else an Elixir of Water Breathing (item 5996,
+                             // granted to the member's bags and used by it) — and the
+                             // step is Done once everyone is covered, or after the
+                             // DC_BREATH_PROVISION_TIMEOUT_MS budget with the uncovered
+                             // members logged. Druids are shifted OUT of Aquatic Form
+                             // (a bear tank or resto healer cannot do its job in it)
+                             // and buffed like everyone else. Humans are never buffed
+                             // or shapeshifted; pets do not drown. See DcBreathSource.
+};
+
+// Pure classification of a step kind, shared by the chain driver, the follower
+// release rule and the registry lint.
+//   Movement: the bot physically travels (MoveTo / RawPath / Jump) — the steps a
+//             PartyWide event has every bot execute from its own position.
+//   Off-mesh: the leg leaves the navmesh (RawPath / Jump) — one-way by nature.
+inline bool IsMovementStepKind(EventStepKind k)
+{
+    return k == EventStepKind::MoveTo || k == EventStepKind::RawPath || k == EventStepKind::Jump;
+}
+
+inline bool IsOffMeshStepKind(EventStepKind k)
+{
+    return k == EventStepKind::RawPath || k == EventStepKind::Jump;
+}
+
+// A FALL VOLUME for a PartyWide off-mesh chain (DungeonEvent::fall): the water
+// (or pit) a bot ends up in when a hop misses. A bot found inside it — within
+// the x/y box and BELOW `maxZ` — is treated as a FAILURE OF THE CHAIN: logged at
+// INFO with the step it fell from, teleported to the RETRY point and rewound to
+// step 0, so the run re-attempts the crossing the way a player would and the
+// log shows the fall. After `maxFalls` by one bot it is teleported to the FINAL
+// point and its chain marked done, so a bad coordinate never wedges a run. The
+// run's fall count is published to the test record (`chainFalls`) and DcDiag.
+struct DcFallVolume
+{
+    bool  enabled{false};
+    float minX{0.0f}, maxX{0.0f};
+    float minY{0.0f}, maxY{0.0f};
+    float maxZ{0.0f};              // in the volume when z < maxZ (the water line)
+    float retryX{0.0f}, retryY{0.0f}, retryZ{0.0f};  // back to the start of the chain
+    float finalX{0.0f}, finalY{0.0f}, finalZ{0.0f};  // the far landing, after maxFalls
+    uint32 maxFalls{3};
+
+    // Pure: is (x,y,z) inside the volume? False when the volume is disabled.
+    bool Contains(float x, float y, float z) const
+    {
+        return enabled && x >= minX && x <= maxX && y >= minY && y <= maxY && z < maxZ;
+    }
 };
 
 // One typed primitive. Fields are a shared bag — only those relevant to `kind`
@@ -307,6 +383,41 @@ struct EventStep
     float  landX{0.0f};
     float  landY{0.0f};
     float  landZ{0.0f};
+
+    // --- RawPath only -----------------------------------------------------
+    // The authored polyline, driven verbatim (see EventStepKind::RawPath). The
+    // single-point x/y/z above mirror the LAST point so every x/y/z consumer
+    // (lint distance checks, the panel, the diag) sees the step's destination.
+    std::vector<G3D::Vector3> path;
+    // The leg is SUBMERGED (.Swim()): the breath watchdog treats a bot on it as
+    // "driving a swim leg", the druid aquatic-form veto applies, and the stuck
+    // thresholds are the 3D swim ones.
+    bool   swim{false};
+
+    // --- Jump only --------------------------------------------------------
+    // Vertical launch speed for MoveJump; 0 => the bot's run speed (the arc apex
+    // at run speed is ~1.3yd). Lower it per hop where a capture shows a low roof
+    // over the landing (the Blackfathom stones have 2.9-4.2yd of headroom).
+    float  jumpSpeedZ{0.0f};
+
+    // --- UseGameObject only -----------------------------------------------
+    // SKIP the click (report Done without Use()) when the map's InstanceScript
+    // GetData(skipIfDataId) == skipIfDataValue. For a GO whose script has no
+    // once-only guard of its own and whose re-click is destructive: Blackfathom
+    // Deeps' Fires of Aku'mai summon a SECOND wave on a second click, and the
+    // fire's GO state (a button that auto-resets) cannot be trusted as the
+    // "already lit" latch — the script's TYPE_FIREn == DONE can. -1 => unused.
+    int32  skipIfDataId{-1};
+    uint32 skipIfDataValue{0};
+
+    // --- stamped by EventBuilder::Build(), never authored ---------------------
+    // The event is PartyWide (DungeonEvent::partyWide), copied onto every step
+    // so RunStep — which sees one step, not the event — can tell a chain hop
+    // from a leader-only Jump; and whether this is the event's LAST movement
+    // step, where the leader waits for the followers' chains (then pulls the
+    // stragglers) before reporting Done.
+    bool   partyWide{false};
+    bool   lastMovementStep{false};
 
     // MoveTo garrison gate, instance-data variant. When instanceDataId >= 0 the
     // step holds at (x,y,z) until the map's InstanceScript GetData(instanceDataId)
@@ -607,6 +718,29 @@ struct DungeonEvent
     // for it — 1372 ticks, ten minutes, nobody walked the last three yards.
     bool yieldsTheApproach{false};
 
+    // PARTY-WIDE movement. Every BOT in the group executes the event's movement
+    // steps (MoveTo / RawPath / Jump) from its own position, the leader first and
+    // the followers released one at a time behind it (DcChainRelease: a follower
+    // starts once the bot ahead of it has cleared the first off-mesh step, so
+    // two bots never share a stone top), each driving its own copy of the chain
+    // (DcChainState, DcPartyWideChain). Non-movement steps stay leader-only.
+    // The follow-tank action yields to the chain driver while a follower's chain
+    // is active, exactly as it yields to the leader's DropInHole today.
+    //
+    // For an off-mesh leg the followers can physically cross themselves — a
+    // stepping-stone chain, a swim through a submerged passage — where the
+    // leader-hops / followers-teleported pattern (Jump, DropInHole) would yank a
+    // bot off its stone mid-chain. The teleport survives in ONE place: a follower
+    // still short of the last point DC_CHAIN_STRAGGLER_MS after the leader
+    // arrived is pulled across to it (PullStrandedFollowersAcross) — the
+    // sanctioned one-way fallback, now a straggler net instead of the mechanism.
+    // Humans are never driven and never teleported. Anchored + Persistent only.
+    bool partyWide{false};
+
+    // PartyWide events only: where a bot that misses a hop ends up, and what to
+    // do about it. See DcFallVolume. Disabled unless FallVolume() is authored.
+    DcFallVolume fall;
+
     // Conditional events only, panel cosmetics. By default an off-path
     // conditional event renders last in the `dc bosses` panel (index 99). When
     // this names a boss entry, the event instead sorts just BEFORE that boss —
@@ -700,12 +834,36 @@ public:
     //   .Gossip(npc, 0).WaitTargetStill()
     EventBuilder& WaitTargetStill();
 
+    // Every bot in the group runs the movement steps (see DungeonEvent::partyWide).
+    EventBuilder& PartyWide();
+    // The fall volume for a PartyWide chain (see DcFallVolume): the box
+    // [minX,maxX]x[minY,maxY] below `maxZ` is the water; a bot found in it is
+    // sent back to (retryX,Y,Z) and rewound, and after `maxFalls` falls on to
+    // (finalX,Y,Z) with its chain marked done.
+    EventBuilder& FallVolume(float minX, float maxX, float minY, float maxY, float maxZ,
+                             float retryX, float retryY, float retryZ,
+                             float finalX, float finalY, float finalZ, uint32 maxFalls = 3);
+
     EventBuilder& MoveTo(float x, float y, float z, float radius = 0.0f);
     // Ballistic jump to (x,y,z): MotionMaster::MoveJump at run speed. Bridges a
     // navmesh gap a ground move can't (drop-down ledge / off-mesh island). The
     // preceding anchor/MoveTo must place the bot on the jump LIP; this clears the
     // gap. Done once the bot is within `radius` of the landing.
     EventBuilder& Jump(float x, float y, float z, float radius = 4.0f);
+    // Override the LAST-added Jump's vertical launch speed (see
+    // EventStep::jumpSpeedZ). Chain it right after the hop it tunes:
+    //   .Jump(x, y, z, 1.5f).JumpSpeedZ(5.0f)
+    EventBuilder& JumpSpeedZ(float speedZ);
+    // Drive an authored polyline verbatim (see EventStepKind::RawPath): a raw
+    // spline through `pts` from wherever the bot stands, Done within
+    // `arriveRadius` (3D) of the last point. Chain .Swim() for a submerged leg.
+    EventBuilder& RawPath(std::vector<G3D::Vector3> pts, float arriveRadius = 3.0f);
+    // Mark the LAST-added RawPath as a SUBMERGED leg (see EventStep::swim):
+    //   .RawPath({S1, S2, S3}, 4.0f).Swim()
+    EventBuilder& Swim();
+    // Provision a water-breathing aura on every bot in the party before the leg
+    // that needs it (see EventStepKind::EnsureWaterBreathing).
+    EventBuilder& EnsureWaterBreathing();
     // MoveTo that GARRISONS: walk to (x,y,z) and HOLD there — re-moving back if a
     // later tick finds the bot displaced (combat pushed it off the spot) — until
     // `creatureEntry` matches `wantAlive`. Keeps the tank anchored at a staging
@@ -758,6 +916,11 @@ public:
     EventBuilder& WhileHolding(uint32 hookId);
     EventBuilder& UseGO(uint32 goEntry, float searchRadius = 0.0f,
                         float x = 0.0f, float y = 0.0f, float z = 0.0f);
+    // Skip the LAST-added UseGO's click when the map's InstanceScript already
+    // reads GetData(dataId) == value (see EventStep::skipIfDataId). Chain it
+    // right after the step:
+    //   .UseGO(GO_FIRE_1, 20).SkipIfInstanceData(TYPE_FIRE1, DONE)
+    EventBuilder& SkipIfInstanceData(uint32 dataId, uint32 value);
     // Deliver the LAST-added UseGO step's click as a report-use rather than a
     // GameObject::Use() (see EventStep::reportUse). Chain after the step:
     //   .UseGO(GO_LEVER, 80).ReportUse()
@@ -884,7 +1047,10 @@ public:
                                 float landX, float landY, float landZ,
                                 float radius = 12.0f);
 
-    DungeonEvent Build() const { return _ev; }
+    // Returns the event with the per-step stamps applied (EventStep::partyWide,
+    // EventStep::lastMovementStep) — the one place the step list learns what
+    // the event around it is.
+    DungeonEvent Build() const;
 
 private:
     EventStep& Add(EventStepKind kind);

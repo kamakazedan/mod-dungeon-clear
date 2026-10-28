@@ -94,6 +94,7 @@
 #include "Ai/Dungeon/DungeonClear/Data/Events/DungeonEventTables.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcCombatPurge.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcPathWorker.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcStratTrapAlley.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcFirstContact.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcPullBrake.h"
 #include "Ai/Dungeon/DungeonClear/Util/DungeonClearUtil.h"
@@ -687,6 +688,14 @@ public:
 // nothing to fight down there, and despawning a critter that merely walked
 // down a slope costs nothing: the trap gates reopen on a timer, not on critter
 // kills.
+//
+// The fall test alone lost the race on the Scarlet side (sk-20261022-002111:
+// 7 Forresten stalls). A critter summoned over the alley's south-edge hole does
+// NOT fall at once: it sits at its summon z for 10-25s, attackable, and the tank
+// charged it or reach-meleed onto it and dropped through first; the critter was
+// despawned only after the tank had landed. So a critter seen anywhere in that
+// hole strip goes the moment it is seen (DcStratTrapAlley::InHoleStrip), and
+// the event "Climb out of the trap-alley pit" rescues a party that falls anyway.
 class DungeonClearStratFallenCritterScript : public AllCreatureScript
 {
 public:
@@ -704,14 +713,16 @@ public:
             return;
         constexpr float STRAT_CRITTER_FALL_YD = 6.0f;
         float const homeZ = creature->GetHomePosition().GetPositionZ();
-        if (creature->GetPositionZ() >= homeZ - STRAT_CRITTER_FALL_YD)
+        bool const overHole = DcStratTrapAlley::InHoleStrip(creature->GetPositionX(), creature->GetPositionY(),
+                                                            creature->GetPositionZ());
+        if (!overHole && creature->GetPositionZ() >= homeZ - STRAT_CRITTER_FALL_YD)
             return;
 
         LOG_INFO("playerbots.dungeonclear",
-                 "[DC] despawning fallen Stratholme critter {} (entry {}) at "
+                 "[DC] despawning {} Stratholme critter {} (entry {}) at "
                  "({:.1f},{:.1f},{:.1f}), {:.1f}yd below its summon point",
-                 creature->GetGUID().ToString(), entry, creature->GetPositionX(),
-                 creature->GetPositionY(), creature->GetPositionZ(),
+                 overHole ? "trap-alley hole" : "fallen", creature->GetGUID().ToString(), entry,
+                 creature->GetPositionX(), creature->GetPositionY(), creature->GetPositionZ(),
                  homeZ - creature->GetPositionZ());
         creature->DespawnOrUnsummon();
     }

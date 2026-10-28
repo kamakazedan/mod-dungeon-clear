@@ -7,7 +7,15 @@
 #include "Ai/Dungeon/DungeonClear/Data/Events/DungeonEventTables.h"
 #include "Ai/Dungeon/DungeonClear/Data/Events/DungeonRosterBuilders.h"
 #include "Ai/Dungeon/DungeonClear/Overrides/ObjectiveHookRegistry.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcKaraLibraryPit.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcRun.h"
+#include "Ai/Dungeon/DungeonClear/Util/DungeonEventExecutor.h"
 #include "InstanceScript.h"
+#include "Log.h"
+#include "Player.h"
+#include "Playerbots.h"
+
+#include <string>
 
 // --- Karazhan (map 532) ----------------------------------------------------
 //
@@ -207,6 +215,59 @@ namespace
                 .Timeout(60 * 60 * 1000)  // three 15-minute games, the retries and the chest
             .Build();
     }
+
+    // --- the void under the Guardian's Library (event 4) -----------------------
+    // A member carried down through the library floor lands on castle-shell navmesh
+    // with no link back to the interior: every route to Illhoof ends ~52yd short and
+    // the run dies on the 120s stall (geometry and evidence in DcKaraLibraryPit.h).
+    // There is no way to walk out, so the way out is a teleport back up.
+    bool InLibraryPit(Player* bot)
+    {
+        return DcKaraLibraryPit::InPit(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ());
+    }
+
+    bool LibraryPitDue(Player* bot, AiObjectContext* /*context*/)
+    {
+        return bot && bot->GetMapId() == DcKaraLibraryPit::MAP_KARAZHAN && bot->IsAlive() && InLibraryPit(bot);
+    }
+
+    // One tick: already out (a rez, a stranded-recovery teleport) is Done; otherwise
+    // relocate the whole party to the landing. The event engine is dormant while the
+    // leader fights, and whatever the party is still flagged with is left behind
+    // (RelocateParty drops it).
+    ObjectiveArriveResult RescueFromLibraryPit(Player* bot, AiObjectContext* context, DungeonBossInfo const& /*info*/)
+    {
+        if (!bot || !context || bot->GetMapId() != DcKaraLibraryPit::MAP_KARAZHAN || !InLibraryPit(bot))
+            return ObjectiveArriveResult::Done;
+
+        DcRunState& run = DcRun::Of(context);
+        ++run.karaPitRescues;
+        run.SetTestExtra("karaPitRescues", std::to_string(run.karaPitRescues), /*numeric*/ true);
+        LOG_INFO("playerbots.dungeonclear",
+                 "[DC:{}] library pit: under the Guardian's Library at ({:.1f},{:.1f},{:.1f}) -> teleporting "
+                 "the party back up to ({:.1f},{:.1f},{:.1f}) (rescue {} this run)",
+                 bot->GetName(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(),
+                 DcKaraLibraryPit::LANDING_X, DcKaraLibraryPit::LANDING_Y, DcKaraLibraryPit::LANDING_Z,
+                 run.karaPitRescues);
+        DungeonEventExecutor::RelocateParty(bot, context, DcKaraLibraryPit::LANDING_X, DcKaraLibraryPit::LANDING_Y,
+                                            DcKaraLibraryPit::LANDING_Z);
+        return ObjectiveArriveResult::Done;
+    }
+
+    // Fires whenever the tank is in the pit; the condition going false is the only
+    // "done", so a second fall re-arms it. The hook teleports, so steps own movement.
+    // PanelAfterBoss, never PanelBeforeBoss: a Repeatable event never latches, so a
+    // BeforeBoss gate would hold Illhoof forever.
+    DungeonEvent LibraryPitRescue()
+    {
+        return EventBuilder(MAP, DcKaraLibraryPit::EVENT_PIT_RESCUE, "Climb out from under the Guardian's Library")
+            .Conditional(&LibraryPitDue)
+            .Repeatable()
+            .StepsOwnMovement()
+            .PanelAfterBoss(NPC_CURATOR)
+            .Custom(DcKaraLibraryPit::HOOK_PIT_RESCUE)
+            .Build();
+    }
 }
 
 void RegisterKarazhanEvents(std::vector<DungeonEvent>& out)
@@ -214,6 +275,12 @@ void RegisterKarazhanEvents(std::vector<DungeonEvent>& out)
     out.push_back(Opera());
     out.push_back(NightbaneUrn());
     out.push_back(Chess());
+    out.push_back(LibraryPitRescue());
+}
+
+void RegisterKarazhanHooks(ObjectiveHookRegistry::HookTable& out)
+{
+    ObjectiveHookRegistry::AddHook(out, DcKaraLibraryPit::HOOK_PIT_RESCUE, &RescueFromLibraryPit);
 }
 
 void RegisterKarazhanRoster(std::vector<BossRosterPatch>& t)

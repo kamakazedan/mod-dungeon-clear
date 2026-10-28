@@ -1158,10 +1158,13 @@ TEST(DungeonEventRegistryTest, StratholmeDathrohanBalnazzarEventShape)
 TEST(DungeonEventConditional, StratholmeZigguratAcolyteEvents)
 {
     std::vector<DungeonEvent const*> str = DungeonEventRegistry::Conditional(329);
-    // the 3 ziggurats + Timmy's pack pre-clear (id 6); the Slaughterhouse is anchored
-    ASSERT_EQ(str.size(), 4u);
+    // the 3 ziggurats + Timmy's pack pre-clear (id 6) + the trap-alley pit rescue
+    // (id 7, t/TestStratTrapAlley); the Slaughterhouse is anchored
+    ASSERT_EQ(str.size(), 5u);
     for (DungeonEvent const* e : str)
     {
+        if (e->id == 7)
+            continue;
         EXPECT_EQ(e->activation, EventActivation::Conditional);
         EXPECT_TRUE(e->required);
         ASSERT_FALSE(e->steps.empty());

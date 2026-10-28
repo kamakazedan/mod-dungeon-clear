@@ -600,6 +600,42 @@ bool DcLeaderSignal::IsLeaderDroppingInHole(Player* bot)
     return ev->steps[prog.stepIndex].kind == EventStepKind::DropInHole;
 }
 
+DungeonEvent const* DcLeaderSignal::GetLeaderPartyWideChain(Player* bot)
+{
+    if (!bot)
+        return nullptr;
+
+    Player* leader = FindLeaderTank(bot);
+    if (!leader || leader == bot)
+        return nullptr;
+
+    PlayerbotAI* leaderAI = GET_PLAYERBOT_AI(leader);
+    if (!leaderAI)
+        return nullptr;
+
+    AiObjectContext* ctx = leaderAI->GetAiObjectContext();
+    if (!DcRun::Of(ctx).enabled || DcRun::Of(ctx).paused)
+        return nullptr;
+
+    // Same cheap pre-check as IsLeaderDroppingInHole: no event in progress means
+    // no chain, and it spares the by-value optional<DungeonBossInfo> read below
+    // on every follower every tick.
+    DungeonEventProgress const& prog =
+        ctx->GetValue<DungeonEventProgress&>(DcKey::EventProgress)->Get();
+    if (!prog.eventId)
+        return nullptr;
+
+    std::optional<DungeonBossInfo> const next =
+        ctx->GetValue<std::optional<DungeonBossInfo>>(DcKey::NextDungeonBoss)->Get();
+    if (!next.has_value() || next->kind != DungeonAnchorKind::Objective || !next->eventId)
+        return nullptr;
+
+    DungeonEvent const* ev = DungeonEventRegistry::Find(next->mapId, next->eventId);
+    if (!ev || !ev->partyWide || prog.eventId != ev->id)
+        return nullptr;
+    return ev;
+}
+
 Creature* DcLeaderSignal::GetLeaderEscortee(Player* bot)
 {
     if (!bot)

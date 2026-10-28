@@ -188,6 +188,94 @@ EventBuilder& EventBuilder::Jump(float x, float y, float z, float radius)
     return *this;
 }
 
+EventBuilder& EventBuilder::JumpSpeedZ(float speedZ)
+{
+    if (!_ev.steps.empty())
+        _ev.steps.back().jumpSpeedZ = speedZ;
+    return *this;
+}
+
+EventBuilder& EventBuilder::RawPath(std::vector<G3D::Vector3> pts, float arriveRadius)
+{
+    EventStep& s = Add(EventStepKind::RawPath);
+    if (!pts.empty())
+    {
+        // Mirror the destination into the shared x/y/z so every single-point
+        // consumer (lint, panel, diag) sees where the leg ends.
+        s.x = pts.back().x;
+        s.y = pts.back().y;
+        s.z = pts.back().z;
+    }
+    s.path = std::move(pts);
+    s.radius = arriveRadius;
+    return *this;
+}
+
+EventBuilder& EventBuilder::Swim()
+{
+    if (!_ev.steps.empty())
+        _ev.steps.back().swim = true;
+    return *this;
+}
+
+EventBuilder& EventBuilder::EnsureWaterBreathing()
+{
+    Add(EventStepKind::EnsureWaterBreathing);
+    return *this;
+}
+
+EventBuilder& EventBuilder::PartyWide()
+{
+    _ev.partyWide = true;
+    return *this;
+}
+
+EventBuilder& EventBuilder::FallVolume(float minX, float maxX, float minY, float maxY, float maxZ,
+                                       float retryX, float retryY, float retryZ,
+                                       float finalX, float finalY, float finalZ, uint32 maxFalls)
+{
+    DcFallVolume& f = _ev.fall;
+    f.enabled = true;
+    f.minX = minX;
+    f.maxX = maxX;
+    f.minY = minY;
+    f.maxY = maxY;
+    f.maxZ = maxZ;
+    f.retryX = retryX;
+    f.retryY = retryY;
+    f.retryZ = retryZ;
+    f.finalX = finalX;
+    f.finalY = finalY;
+    f.finalZ = finalZ;
+    f.maxFalls = maxFalls;
+    return *this;
+}
+
+EventBuilder& EventBuilder::SkipIfInstanceData(uint32 dataId, uint32 value)
+{
+    if (!_ev.steps.empty())
+    {
+        _ev.steps.back().skipIfDataId = static_cast<int32>(dataId);
+        _ev.steps.back().skipIfDataValue = value;
+    }
+    return *this;
+}
+
+DungeonEvent EventBuilder::Build() const
+{
+    DungeonEvent ev = _ev;
+    int32 lastMove = -1;
+    for (size_t i = 0; i < ev.steps.size(); ++i)
+        if (IsMovementStepKind(ev.steps[i].kind))
+            lastMove = static_cast<int32>(i);
+    for (size_t i = 0; i < ev.steps.size(); ++i)
+    {
+        ev.steps[i].partyWide = ev.partyWide;
+        ev.steps[i].lastMovementStep = static_cast<int32>(i) == lastMove;
+    }
+    return ev;
+}
+
 EventBuilder& EventBuilder::MoveToHoldUntilSpawn(float x, float y, float z, float radius,
                                                  uint32 creatureEntry, bool wantAlive)
 {
@@ -486,6 +574,7 @@ namespace
             RegisterBlackrockSpireEvents(t);
             RegisterDeadminesEvents(t);
             RegisterWailingCavernsEvents(t);
+            RegisterBlackfathomDeepsEvents(t);
             RegisterStratholmeEvents(t);
             RegisterUldamanEvents(t);
             RegisterScholomanceEvents(t);

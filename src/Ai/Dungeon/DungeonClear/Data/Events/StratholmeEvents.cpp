@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <list>
+#include <string>
 
 #include "Creature.h"
 #include "InstanceScript.h"
@@ -16,7 +17,10 @@
 #include "Playerbots.h"
 #include "Ai/Dungeon/DungeonClear/Overrides/BossRosterRegistry.h"
 #include "Ai/Dungeon/DungeonClear/Overrides/ObjectiveHookRegistry.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcRun.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcStratTrapAlley.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcTargeting.h"
+#include "Ai/Dungeon/DungeonClear/Util/DungeonEventExecutor.h"
 
 // --- Stratholme (map 329) — live (Scarlet) side: Dathrohan -> Balnazzar -----
 // The Balnazzar encounter (DBC bit 6) credits creature 10813 (Balnazzar), which
@@ -317,6 +321,47 @@ namespace
 
 namespace
 {
+    // --- the Scarlet trap-alley pit (event 7) -------------------------------
+    // A party that drops through the alley's south-edge hole lands on a floor
+    // ~65yd down that no route leaves: every path to Hearthsinger Forresten ends
+    // 79yd short and the run dies on the 120s stall (geometry and evidence in
+    // DcStratTrapAlley.h). There is no ramp to swim or walk, so the way out is a
+    // teleport back up to the alley, west of the trap.
+    bool StrInTrapAlleyPit(Player* bot)
+    {
+        return DcStratTrapAlley::InPit(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ());
+    }
+
+    bool StrTrapAlleyPitDue(Player* bot, AiObjectContext* /*context*/)
+    {
+        return bot && bot->GetMapId() == DcStratTrapAlley::MAP_STRATHOLME && bot->IsAlive() &&
+               StrInTrapAlleyPit(bot);
+    }
+
+    // One tick: already out (a rez, a stranded-recovery teleport) is Done;
+    // otherwise relocate the whole party to the landing. Combat needs no gate:
+    // the event engine is dormant while the leader fights, and whatever the
+    // party is still flagged with is left in the pit (RelocateParty drops it).
+    ObjectiveArriveResult RescueFromTrapAlleyPit(Player* bot, AiObjectContext* context,
+                                                 DungeonBossInfo const& /*info*/)
+    {
+        if (!bot || !context || bot->GetMapId() != DcStratTrapAlley::MAP_STRATHOLME || !StrInTrapAlleyPit(bot))
+            return ObjectiveArriveResult::Done;
+
+        DcRunState& run = DcRun::Of(context);
+        ++run.stratPitRescues;
+        run.SetTestExtra("stratPitRescues", std::to_string(run.stratPitRescues), /*numeric*/ true);
+        LOG_INFO("playerbots.dungeonclear",
+                 "[DC:{}] trap-alley pit: fell through at ({:.1f},{:.1f},{:.1f}) -> teleporting the party "
+                 "back up to ({:.1f},{:.1f},{:.1f}) (rescue {} this run)",
+                 bot->GetName(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(),
+                 DcStratTrapAlley::LANDING_X, DcStratTrapAlley::LANDING_Y, DcStratTrapAlley::LANDING_Z,
+                 run.stratPitRescues);
+        DungeonEventExecutor::RelocateParty(bot, context, DcStratTrapAlley::LANDING_X,
+                                            DcStratTrapAlley::LANDING_Y, DcStratTrapAlley::LANDING_Z);
+        return ObjectiveArriveResult::Done;
+    }
+
     bool StrZig1(Player* bot, AiObjectContext* context);
     bool StrZig2(Player* bot, AiObjectContext* context);
     bool StrZig3(Player* bot, AiObjectContext* context);
@@ -465,6 +510,19 @@ void RegisterStratholmeEvents(std::vector<DungeonEvent>& out)
                                       /*timeoutMs*/ STR_WAVE_GAP_TIMEOUT,
                                       /*searchRadius*/ STR_DOOR_SEARCH)
                       .Build());
+
+    // --- climb out of the trap-alley pit (conditional, id 7) ----------------
+    // Fires whenever the tank is in the pit; the condition going false is the
+    // only "done", so a second fall re-arms it. The hook teleports, so steps own
+    // movement. PanelAfterBoss, never PanelBeforeBoss: a Repeatable event never
+    // latches, so a BeforeBoss gate would hold Forresten forever.
+    out.push_back(EventBuilder(329, DcStratTrapAlley::EVENT_PIT_RESCUE, "Climb out of the trap-alley pit")
+                      .Conditional(&StrTrapAlleyPitDue)
+                      .Repeatable()
+                      .StepsOwnMovement()
+                      .PanelAfterBoss(DcStratTrapAlley::NPC_THE_UNFORGIVEN)
+                      .Custom(DcStratTrapAlley::HOOK_PIT_RESCUE)
+                      .Build());
 }
 
 
@@ -479,6 +537,7 @@ void RegisterStratholmeHooks(ObjectiveHookRegistry::HookTable& out)
     ObjectiveHookRegistry::AddHook(out, STR_HOOK_ZIG3_CLEARED,
         [](Player* bot, AiObjectContext*, DungeonBossInfo const&)
         { return ZigguratCleared(bot, STR_TYPE_ZIGGURAT3, STR_ZIG3_X, STR_ZIG3_Y, STR_ZIG3_Z); });
+    ObjectiveHookRegistry::AddHook(out, DcStratTrapAlley::HOOK_PIT_RESCUE, &RescueFromTrapAlleyPit);
 }
 
 // --- roster patch (relocated from BossRosterRegistry) --------------------

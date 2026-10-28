@@ -71,6 +71,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/LongRangePathfinder.h"
 #include "Ai/Dungeon/DungeonClear/Util/StridedPathfinder.h"
 #include "Ai/Dungeon/DungeonClear/Util/SwimPathfinder.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcPartyWideChain.h"
 #include "Ai/Dungeon/DungeonClear/Value/DungeonClearStateValues.h"
 #include "Playerbots.h"
 #include "DcActionShared.h"
@@ -258,6 +259,19 @@ bool DungeonClearFollowTankAction::Execute(Event /*event*/)
     // DropInHole RunStep gate), so the right behavior until then is to stand
     // still. Keep the teardown/orphan bookkeeping live so a generator we installed
     // is still cancelled when the DC tank later goes away.
+    // Leader is driving a PARTY-WIDE chain (the Blackfathom stones, an authored
+    // swim): this follower runs the same movement steps itself, released in
+    // turn behind the bot ahead of it, and holds where it stands until then.
+    // Following the tank would MoveFollow it onto an off-mesh rim and clip it.
+    // DriveFollower owns the tick for the whole crossing and hands back once
+    // the follower's chain is done (or it was netted across by the leader).
+    if (DcPartyWideChain::DriveFollower(bot, botAI, context))
+    {
+        followedTank = tank->GetGUID();
+        DcFollowerLifecycle::MarkFollowing(bot->GetGUID());
+        return true;
+    }
+
     if (DcLeaderSignal::IsLeaderDroppingInHole(bot))
     {
         DcMovement::StopBot(bot, DcMovement::Stop::Hold);
@@ -2096,13 +2110,29 @@ bool DungeonClearLeaderAssistAction::Execute(Event /*event*/)
     // Bounded by the same distance the follower rungs treat as "already here", so
     // a genuine round-the-corner assist — the case this fallback exists for — is
     // untouched.
-    if (!target && bestFighterDist <= DC_LEADER_ASSIST_COLOCATED_RANGE)
+    //
+    // With hysteresis: once the rung has yielded beside a member it keeps yielding
+    // until that member is DC_LEADER_ASSIST_COLOCATED_RELEASE away. The member
+    // follows the tank, so a bare threshold flips every tick across it and the two
+    // movers cancel (see the constant).
+    if (target)
+        _colocatedFighter.Clear();
+    else
     {
-        DC_PULL_TRACE("[DC:{}] leader assist: nothing reachable to assist and the "
-                      "nearest flagged member is {:.1f}yd away -> yielding the tick "
-                      "to the driving ladder",
-                      bot->GetName(), bestFighterDist);
-        return false;
+        bool const latched = _colocatedFighter == nearestFighter->GetGUID();
+        if (DungeonClearMath::LeaderAssistFallbackYields(bestFighterDist, latched,
+                                                         DC_LEADER_ASSIST_COLOCATED_RANGE,
+                                                         DC_LEADER_ASSIST_COLOCATED_RELEASE))
+        {
+            _colocatedFighter = nearestFighter->GetGUID();
+            DC_PULL_TRACE("[DC:{}] leader assist: nothing reachable to assist and the "
+                          "nearest flagged member is {:.1f}yd away{} -> yielding the tick "
+                          "to the driving ladder",
+                          bot->GetName(), bestFighterDist,
+                          latched ? " (still inside the release band)" : "");
+            return false;
+        }
+        _colocatedFighter.Clear();
     }
 
     Unit* const moveTo = target ? target : static_cast<Unit*>(nearestFighter);

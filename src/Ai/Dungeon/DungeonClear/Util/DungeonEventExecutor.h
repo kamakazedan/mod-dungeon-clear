@@ -167,6 +167,14 @@ public:
     // X/Y is already over the landing — only the descent has to finish.
     static bool IsOnDropLanding(Player* bot, EventStep const& step);
 
+    // IMPURE: teleport the leader to (lx,ly,lz), pull every party bot stranded
+    // more than 15yd from it across, drop the combat left on the far side, and
+    // invalidate every cached route artifact (long path, follower cursor, hop,
+    // in-flight async build, NextDungeonBoss) so the next tick re-derives from
+    // the new position. The tail of the TeleportParty step, shared with hooks
+    // that rescue a party from a pit it cannot path out of.
+    static void RelocateParty(Player* bot, AiObjectContext* context, float lx, float ly, float lz);
+
     // IMPURE: drive the gossip OPCODES to open `npc`'s menu and select `option`,
     // returning true once the select has been sent (false while the menu/option
     // is not yet populated). Shared by the Gossip step and the EscortCreature

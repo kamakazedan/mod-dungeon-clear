@@ -655,3 +655,62 @@ TEST(DcRezDecisionTest, AnUnsafeFullWipeIsStillAWipe)
     EXPECT_EQ(r.outcome, Outcome::Disable);
     EXPECT_EQ(r.reason, Reason::Wipe);
 }
+
+// ---- the leader's corpse is never left behind ---------------------------------------
+//
+// Both stand-downs mean "carry on short-handed", and the run only ticks on its leader.
+// sk-20261022-002111: two Karazhan tanks died in the Attumen stables (one beside an idle
+// Midnight, one on Attumen himself); each verdict read "carrying on without them" and
+// nine living members stood over the body until no_progress ended the run.
+
+TEST(DcRezDecisionTest, TheLeadersUnsafeCorpseIsStillRaised)
+{
+    auto party = BaseParty();
+    party[0].isDead = true;          // the tank, driving the run
+    party[0].isLeader = true;
+    party[0].corpseUnsafe = true;
+    Result const r = Decide(BaseInputs(), party);
+    EXPECT_EQ(r.outcome, Outcome::Hold);
+    EXPECT_EQ(r.reason, Reason::Recovering);
+    EXPECT_EQ(r.rezzerIdx, 1);
+    EXPECT_EQ(r.targetIdx, 0);
+    ASSERT_EQ(r.pairs.size(), 1u);
+    EXPECT_EQ(r.pairs[0], std::make_pair(1, 0));
+}
+
+TEST(DcRezDecisionTest, AnUnsafeNonLeaderCorpseStillStandsDownBesideALiveLeader)
+{
+    // The exemption is the leader's alone: the Servants' Quarters healer case is unchanged.
+    auto party = BaseParty();
+    party[0].isLeader = true;
+    party[2].isDead = true;
+    party[2].corpseUnsafe = true;
+    EXPECT_EQ(Decide(BaseInputs(), party).reason, Reason::UnsafeStandDown);
+}
+
+TEST(DcRezDecisionTest, ABlockOverTheLeadersCorpseHoldsPastTheWait)
+{
+    auto party = BaseParty();
+    party[0].isDead = true;
+    party[0].isLeader = true;
+    party[2].isDead = true;
+    Inputs in = BaseInputs();
+    in.rezBlocked = true;
+    in.blockedSinceMs = in.nowMs - 60000;
+    in.blockedHoldMaxMs = 20000;
+    Result const r = Decide(in, party);
+    EXPECT_EQ(r.outcome, Outcome::Hold);
+    EXPECT_EQ(r.reason, Reason::BlockedWaiting);
+    EXPECT_EQ(r.rezzerIdx, -1);
+
+    // ...and with no wait configured at all.
+    in.blockedHoldMaxMs = 0;
+    EXPECT_EQ(Decide(in, party).reason, Reason::BlockedWaiting);
+
+    // The encounter releases the spell: the ordinary election raises the leader.
+    in.rezBlocked = false;
+    Result const lifted = Decide(in, party);
+    EXPECT_EQ(lifted.outcome, Outcome::Hold);
+    EXPECT_EQ(lifted.reason, Reason::Recovering);
+    EXPECT_EQ(lifted.targetIdx, 0);
+}

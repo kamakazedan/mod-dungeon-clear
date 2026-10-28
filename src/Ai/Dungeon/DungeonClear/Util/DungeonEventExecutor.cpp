@@ -42,7 +42,10 @@
 #include "Ai/Dungeon/DungeonClear/DcApproachState.h"
 #include "Ai/Dungeon/DungeonClear/DcValueKeys.h"
 #include "Ai/Dungeon/DungeonClear/Util/ChunkedPathfinder.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcBreathProvision.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcPartyWideChain.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcCombatFlag.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcRun.h"
 #include "Ai/Dungeon/DungeonClear/Util/DungeonClearTuning.h"
 #include "Ai/Dungeon/DungeonClear/Util/DungeonPathFollower.h"
 
@@ -252,6 +255,38 @@ namespace
         }
     }
 
+    // The LEADER has reached the end of a PARTY-WIDE movement step. Any step but
+    // the chain's last is simply Done — the followers run their own chains. The
+    // last one waits (Running) until every alive bot follower's chain is done
+    // or DC_CHAIN_STRAGGLER_MS has passed since the leader arrived, then pulls
+    // whoever is still short across to the landing (the one place the teleport
+    // survives in a party-wide event) and marks their chains finished so a
+    // pulled bot does not keep driving a chain it was lifted off.
+    StepResult FinishChainMovement(Player* bot, AiObjectContext* context, EventStep const& step,
+                                   DungeonEventProgress const& prog, uint32 nowMs)
+    {
+        if (!step.lastMovementStep)
+            return StepResult::Done;
+        DungeonEvent const* ev = DungeonEventRegistry::Find(bot->GetMapId(), prog.eventId);
+        DcChainState& st = context->GetValue<DcChainState&>(DcKey::ChainState)->Get();
+        if (!ev || !DcPartyWideChain::StragglersResolved(bot, *ev, st, nowMs))
+            return StepResult::Running;
+        float lx = step.x, ly = step.y, lz = step.z;
+        if (step.kind == EventStepKind::RawPath && !step.path.empty())
+        {
+            lx = step.path.back().x;
+            ly = step.path.back().y;
+            lz = step.path.back().z;
+        }
+        PullStrandedFollowersAcross(bot, lx, ly, lz);
+        DcPartyWideChain::FinishFollowerChains(bot, *ev);
+        LOG_INFO("playerbots.dungeonclear",
+                 "[DC:{}] chain '{}': complete — {} fall(s) this run",
+                 bot->GetName(), ev->name, DcRun::Of(context).chainFalls);
+        st.done = true;
+        return StepResult::Done;
+    }
+
     // Drop the combat the party is carrying across a one-way relocation.
     //
     // A TeleportParty crosses a navmesh break BY DEFINITION — that is the whole
@@ -350,6 +385,52 @@ namespace
                      "[dungeon-clear] {}: relocation dropped {} combat holder(s) left on "
                      "the far side of the break",
                      leader->GetName(), cleared);
+    }
+}
+
+void DungeonEventExecutor::RelocateParty(Player* bot, AiObjectContext* context, float lx, float ly, float lz)
+{
+    bot->GetMotionMaster()->Clear();
+    bot->NearTeleportTo(lx, ly, lz, bot->GetOrientation());
+    PullStrandedFollowersAcross(bot, lx, ly, lz);
+    // Backstop for whatever combat survived the caller's combat gate (a
+    // follower flagged by something the leader was not, an add that landed on
+    // the teleport tick, or TeleportParty's bounded hold expiring). Everything
+    // the party was fighting is now on the far side of the break.
+    DropCombatLeftBehind(bot);
+    // The leader just moved a long way in zero ticks: every cached route
+    // artifact — the long-path polyline, its follower cursor, and any
+    // in-flight async build (submitted from the PRE-teleport position) —
+    // now describes the wrong start. Left alone, the next Advance re-enters
+    // the stale polyline with a straight opening spline back toward the
+    // old cursor and the tank sprints the wrong way (seen live: post-Brazen
+    // drop-off, tank ran back toward the Old Hillsbrad entrance until a
+    // stray mob interrupted it). Invalidate it all; EnsureLongPath rebuilds
+    // from the post-teleport position (and its start-drift guard discards
+    // any result the old position already baked).
+    {
+        DcApproachState& appr =
+            context->GetValue<DcApproachState&>(DcKey::ApproachState)->Get();
+        appr.longPathTargetEntry = 0;
+        appr.longPathExpiresMs = 0;
+        appr.pendingPathJob = 0;   // orphaned result reaped by the mailbox sweep
+        appr.pendingPathSinceMs = 0;
+        context->GetValue<ChunkedPathfinder::Result&>(DcKey::LongPath)->Reset();
+        context->GetValue<DungeonFollowerState&>(DcKey::FollowerState)->Get() =
+            DungeonFollowerState{};
+        context->GetValue<uint32>(DcKey::CurrentHop)->Set(0u);
+        // AND THE TARGET ITSELF. The objective latches cleared the moment
+        // this returns Done, but NextDungeonBossValue is a CACHED value: for
+        // the rest of its interval it keeps naming the objective we just
+        // completed, whose anchor is the checkpoint — now 360yd overhead and
+        // on the far side of the break. Advance duly builds a route to it,
+        // gets an unreachable partial that wanders off across the landing
+        // chamber, and glides it. Live on Azjol-Nerub: one second after the
+        // teleport the tank issued a 110yd spline from the landing back
+        // NORTH to (565.9, 572.3, 300.8) and ran it. Dropping the cache here
+        // makes the next tick re-derive with the latch already in place.
+        context->GetValue<std::optional<DungeonBossInfo>>(DcKey::NextDungeonBoss)
+            ->Reset();
     }
 }
 
@@ -614,21 +695,32 @@ StepResult DungeonEventExecutor::RunStep(Player* bot, AiObjectContext* context,
             float const radius = step.radius > 0.0f ? step.radius : DC_EVENT_MOVE_RADIUS;
             if (bot->GetExactDist(step.x, step.y, step.z) <= radius)
             {
-                // Landed. The followers can't path across the off-mesh gap, so
-                // pull any stranded on the far side over to the tank. Idempotent:
-                // a follower already across is skipped, so a restart is a no-op.
+                // Landed. A PARTY-WIDE hop never teleports per landing — the
+                // followers are hopping themselves, and a mid-chain yank would
+                // lift a bot off its stone; only the chain's LAST movement step
+                // waits for them and nets the stragglers (FinishChainMovement).
+                if (step.partyWide)
+                    return FinishChainMovement(bot, context, step, prog, nowMs);
+                // The followers can't path across the off-mesh gap, so pull any
+                // stranded on the far side over to the tank. Idempotent: a
+                // follower already across is skipped, so a restart is a no-op.
                 PullStrandedFollowersAcross(bot, step.x, step.y, step.z);
                 return StepResult::Done;
             }
+            // A party-wide hop is DRIVEN by the action (DriveChainStep), which
+            // owns the tick until the bot is within radius; nothing to do here.
+            if (step.partyWide)
+                return StepResult::Running;
             // While the jump spline is in flight the bot reads as moving — don't
             // re-issue (MoveJump would restart the arc and never land). Only fire
             // a fresh jump once the bot is settled on the lip.
             if (!bot->isMoving())
             {
                 float const speed = bot->GetSpeed(MOVE_RUN);
+                float const speedZ = step.jumpSpeedZ > 0.0f ? step.jumpSpeedZ : speed;
                 MotionMaster* mm = bot->GetMotionMaster();
                 mm->Clear();
-                mm->MoveJump(step.x, step.y, step.z, speed, speed, 1);
+                mm->MoveJump(step.x, step.y, step.z, speed, speedZ, 1);
                 LOG_DEBUG("playerbots.dungeonclear",
                           "[dungeon-clear] {} event-step Jump -> ({:.1f},{:.1f},{:.1f})",
                           bot->GetName(), step.x, step.y, step.z);
@@ -636,8 +728,48 @@ StepResult DungeonEventExecutor::RunStep(Player* bot, AiObjectContext* context,
             return StepResult::Running;
         }
 
+        case EventStepKind::RawPath:
+        {
+            // PURE completion gate: the polyline is driven by the action
+            // (DriveChainStep owns the tick so the at-objective Hold cannot
+            // cancel the raw spline). Done within `radius` (3D) of the last
+            // point — idempotent across a restart. For a party-wide chain the
+            // last movement step additionally waits for the followers' chains
+            // and nets the stragglers; a leader-only RawPath pulls them across
+            // on arrival like a Jump does.
+            if (step.path.empty())
+                return StepResult::Done;
+            float const radius = step.radius > 0.0f ? step.radius : DC_EVENT_MOVE_RADIUS;
+            G3D::Vector3 const& last = step.path.back();
+            if (bot->GetExactDist(last.x, last.y, last.z) > radius)
+                return StepResult::Running;
+            if (step.partyWide)
+                return FinishChainMovement(bot, context, step, prog, nowMs);
+            PullStrandedFollowersAcross(bot, last.x, last.y, last.z);
+            return StepResult::Done;
+        }
+
+        case EventStepKind::EnsureWaterBreathing:
+            return DcBreathProvision::Tick(bot, prog, nowMs);
+
         case EventStepKind::UseGameObject:
         {
+            // Script-side "already done" guard (EventStep::skipIfDataId): the
+            // instance says this click's work is complete, so never click again
+            // — for a GO whose re-click is destructive (a second wave) and whose
+            // own GO state cannot be trusted as the latch (a button that resets).
+            if (step.skipIfDataId >= 0)
+            {
+                InstanceScript* inst = DcTargeting::GetInstanceScript(bot);
+                if (inst && inst->GetData(static_cast<uint32>(step.skipIfDataId)) == step.skipIfDataValue)
+                {
+                    LOG_INFO("playerbots.dungeonclear",
+                             "[DC:{}] event-step Use GO {}: instance data({}) already reads {} — "
+                             "skipping the click",
+                             bot->GetName(), step.goEntry, step.skipIfDataId, step.skipIfDataValue);
+                    return StepResult::Done;
+                }
+            }
             float const search = step.radius > 0.0f ? step.radius : DC_EVENT_GO_SEARCH;
             GameObject* go = bot->FindNearestGameObject(step.goEntry, search);
             if (!go)
@@ -1059,48 +1191,7 @@ StepResult DungeonEventExecutor::RunStep(Player* bot, AiObjectContext* context,
                 HopTo(bot, step.x, step.y, step.z);
                 return StepResult::Running;
             }
-            bot->GetMotionMaster()->Clear();
-            bot->NearTeleportTo(step.landX, step.landY, step.landZ, bot->GetOrientation());
-            PullStrandedFollowersAcross(bot, step.landX, step.landY, step.landZ);
-            // Backstop for whatever combat survived the gate above (a follower
-            // flagged by something the leader was not, an add that landed on the
-            // teleport tick, or the bounded hold expiring). Everything the party
-            // was fighting is now on the far side of the break.
-            DropCombatLeftBehind(bot);
-            // The leader just moved a long way in zero ticks: every cached route
-            // artifact — the long-path polyline, its follower cursor, and any
-            // in-flight async build (submitted from the PRE-teleport position) —
-            // now describes the wrong start. Left alone, the next Advance re-enters
-            // the stale polyline with a straight opening spline back toward the
-            // old cursor and the tank sprints the wrong way (seen live: post-Brazen
-            // drop-off, tank ran back toward the Old Hillsbrad entrance until a
-            // stray mob interrupted it). Invalidate it all; EnsureLongPath rebuilds
-            // from the post-teleport position (and its start-drift guard discards
-            // any result the old position already baked).
-            {
-                DcApproachState& appr =
-                    context->GetValue<DcApproachState&>(DcKey::ApproachState)->Get();
-                appr.longPathTargetEntry = 0;
-                appr.longPathExpiresMs = 0;
-                appr.pendingPathJob = 0;   // orphaned result reaped by the mailbox sweep
-                appr.pendingPathSinceMs = 0;
-                context->GetValue<ChunkedPathfinder::Result&>(DcKey::LongPath)->Reset();
-                context->GetValue<DungeonFollowerState&>(DcKey::FollowerState)->Get() =
-                    DungeonFollowerState{};
-                context->GetValue<uint32>(DcKey::CurrentHop)->Set(0u);
-                // AND THE TARGET ITSELF. The objective latches cleared the moment
-                // this returns Done, but NextDungeonBossValue is a CACHED value: for
-                // the rest of its interval it keeps naming the objective we just
-                // completed, whose anchor is the checkpoint — now 360yd overhead and
-                // on the far side of the break. Advance duly builds a route to it,
-                // gets an unreachable partial that wanders off across the landing
-                // chamber, and glides it. Live on Azjol-Nerub: one second after the
-                // teleport the tank issued a 110yd spline from the landing back
-                // NORTH to (565.9, 572.3, 300.8) and ran it. Dropping the cache here
-                // makes the next tick re-derive with the latch already in place.
-                context->GetValue<std::optional<DungeonBossInfo>>(DcKey::NextDungeonBoss)
-                    ->Reset();
-            }
+            RelocateParty(bot, context, step.landX, step.landY, step.landZ);
             LOG_DEBUG("playerbots.dungeonclear",
                       "[dungeon-clear] {} TeleportParty: ({:.1f},{:.1f},{:.1f}) -> "
                       "landing ({:.1f},{:.1f},{:.1f})",

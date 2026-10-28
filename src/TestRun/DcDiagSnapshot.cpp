@@ -32,6 +32,7 @@
 #include "Ai/Dungeon/DungeonClear/DcValueKeys.h"
 #include "Ai/Dungeon/DungeonClear/Util/ChunkedPathfinder.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcAnchorDone.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcBreathProvision.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcCombatFlag.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcEngageGeometry.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRun.h"
@@ -162,7 +163,8 @@ namespace
             // 100% reach LEGIT` and the wedge looked like a healthy fight.
             bool const trigger =
                 DungeonClearMath::IsUnresolvableCombatHolder(asCreature != nullptr,
-                                                             asCreature && asCreature->IsTrigger());
+                                                             asCreature && asCreature->IsTrigger(),
+                                                             asCreature ? asCreature->GetEntry() : 0);
             bool const legitimate = reachable && canAttackMe && !trigger;
             if (DcDiag::IsLegitimatePvECombatHolder(pvp, legitimate))
                 anyLegitimatePvEHolder = true;
@@ -458,6 +460,7 @@ namespace DcDiag
             AI_VALUE(std::unordered_set<uint32>&, DcKey::SeenBosses);
         snap.clearedAnchors = static_cast<std::uint32_t>(cleared.size());
         snap.skippedCount = static_cast<std::uint32_t>(skipped.size());
+        snap.chainFalls = DcRun::Of(context).chainFalls;
 
         // --- heartbeat ----------------------------------------------------
         // Taken here rather than mirrored out of the member loop below, which a
@@ -586,6 +589,7 @@ namespace DcDiag
                 m.inCombat = member->IsInCombat();
                 if (Unit* victim = member->GetVictim())
                     m.victim = victim->GetName();
+                m.uwSec = DcBreathProvision::UnderwaterSeconds(member, getMSTime());
 
                 if (PlayerbotAI* memberAI = GET_PLAYERBOT_AI(member))
                 {
@@ -787,6 +791,7 @@ namespace DcDiag
         s << ",\"completedEncounterMask\":" << snap.completedEncounterMask
           << ",\"clearedAnchors\":" << snap.clearedAnchors
           << ",\"skipped\":" << snap.skippedCount
+          << ",\"chainFalls\":" << snap.chainFalls
           // -1 == the DC ladder has never run for this bot; otherwise ms since.
           << ",\"dcTickAgeMs\":"
           << (snap.dcTickSeen ? static_cast<std::int64_t>(snap.dcTickAgeMs) : -1)
@@ -824,6 +829,7 @@ namespace DcDiag
               << (m.dcTickSeen ? static_cast<std::int64_t>(m.dcTickAgeMs) : -1)
               << ",\"botState\":";
             AppendEscaped(s, m.botState);
+            s << ",\"uwSec\":" << m.uwSec;
             // Emitted only for a rider, so every existing reader sees the same row.
             if (m.onVehicle)
                 s << ",\"onVehicle\":true,\"baseEntry\":" << m.baseEntry

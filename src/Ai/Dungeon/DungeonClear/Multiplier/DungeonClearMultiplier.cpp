@@ -25,6 +25,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcFlightLeg.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcLyceumCloseUpDecision.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcOculusPlan.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcPartyWideChain.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcSmartRest.h"
 #include "Ai/Dungeon/DungeonClear/Util/DungeonClearUtil.h"
 #include "Ai/Dungeon/DungeonClear/DcValueKeys.h"
@@ -359,6 +360,14 @@ float DungeonClearMultiplier::GetValue(Action* action)
             }
         }
     }
+
+    // Druids never swim an authored water leg in Aquatic Form: it breathes, but a
+    // bear tank or a resto healer in it cannot do its job. While this bot (or
+    // its leader) is on a submerged chain step or provisioning water breathing,
+    // the stock "aquatic form" trigger is vetoed; the EnsureWaterBreathing step
+    // buffs the druid like everyone else (DcBreathProvision).
+    if (name == "aquatic form" && DcPartyWideChain::IsWaterLegActive(bot))
+        return 0.0f;
 
     // The stock anti-stack shuffle ("move out of collision", NonCombatStrategy
     // relevance 2) fights DC's positioning and can livelock a follower: the

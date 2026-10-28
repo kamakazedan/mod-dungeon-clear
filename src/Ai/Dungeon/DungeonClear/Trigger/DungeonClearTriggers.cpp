@@ -43,6 +43,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcRegroupDecision.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRaidMuster.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRezRecovery.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcBreathProvision.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcStrandedRecovery.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcSmartRest.h"
 #include "Ai/Dungeon/DungeonClear/Util/DungeonClearMath.h"
@@ -942,6 +943,12 @@ bool DungeonClearRecoverStrandedTrigger::IsActive()
     Map* map = bot->GetMap();
     if (!map || !map->IsDungeon())
         return false;
+
+    // The breath watchdog rides the same per-tick, leader-only site: it stamps
+    // every member's "under water since" on the run state and rescues a bot
+    // that is drowning with no swim leg driving it (DcBreathProvision). A no-op
+    // on followers and off/paused runs, like Evaluate below.
+    DcBreathProvision::WatchdogTick(bot);
 
     // Evaluate is the failsafe's clock owner: it ticks the leader's no-progress
     // clock as a side effect (leader-only inside; a no-op on followers and on

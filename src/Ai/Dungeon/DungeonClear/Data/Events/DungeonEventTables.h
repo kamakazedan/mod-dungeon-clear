@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "Ai/Dungeon/DungeonClear/Data/DungeonEventRegistry.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcPoolExitDecision.h"
 
 class Player;
 class Creature;
@@ -71,6 +72,23 @@ void RegisterStratholmeEvents(std::vector<DungeonEvent>& out);
 void RegisterUldamanEvents(std::vector<DungeonEvent>& out);
 void RegisterScholomanceEvents(std::vector<DungeonEvent>& out);
 void RegisterDireMaulEvents(std::vector<DungeonEvent>& out);
+void RegisterBlackfathomDeepsEvents(std::vector<DungeonEvent>& out);
+// Blackfathom Deeps (map 48) — the Forgotten Pool exit, shared with the gtests
+// (t/TestBlackfathomDeeps). The reasoning is in BlackfathomDeepsEvents.cpp.
+namespace DcBlackfathomDeeps
+{
+    constexpr uint32 EVENT_POOL_EXIT = 8;  // 3, 4, 7 were the removed Serra'kis legs
+    // Hook ids are one flat space across every dungeon; 63 is the next free one.
+    constexpr uint32 HOOK_POOL_EXIT = 63;
+    // Bound on one climb out (the Custom step's timeout): the longest floor
+    // route to the ramp is ~200yd, under a minute of swimming.
+    constexpr uint32 POOL_EXIT_TIMEOUT_MS = 120000;
+    constexpr uint32 NPC_LORGUS_JETT = 12902;
+
+    // The pool, its depth gate and the ramp out (defined beside the event).
+    DcPoolExit::Pool const& ForgottenPool();
+}
+
 // Hellfire Ramparts (map 543) final-approach gate — see HellfireRampartsEvents.cpp
 // for the measurements. Exposed so t/TestRampartsLedgeProbe can assert against the
 // real navmesh that the zone-in platform lies outside the gate; the numbers are
@@ -5850,6 +5868,7 @@ void RegisterBlackrockSpireRoster(std::vector<BossRosterPatch>& t);
 void RegisterBlackwingLairRoster(std::vector<BossRosterPatch>& t);
 void RegisterDeadminesRoster(std::vector<BossRosterPatch>& t);
 void RegisterWailingCavernsRoster(std::vector<BossRosterPatch>& t);
+void RegisterBlackfathomDeepsRoster(std::vector<BossRosterPatch>& t);
 void RegisterStratholmeRoster(std::vector<BossRosterPatch>& t);
 void RegisterDireMaulRoster(std::vector<BossRosterPatch>& t);
 void RegisterUldamanRoster(std::vector<BossRosterPatch>& t);

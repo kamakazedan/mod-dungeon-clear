@@ -225,7 +225,8 @@ namespace DcCombatFlag
             // wrong verdict.
             Creature* const holder = other->ToCreature();
             if (DungeonClearMath::IsUnresolvableCombatHolder(holder != nullptr,
-                                                            holder && holder->IsTrigger()))
+                                                            holder && holder->IsTrigger(),
+                                                            holder ? holder->GetEntry() : 0))
                 continue;  // unkillable script helper -> a flag with no way out
             if (!DcEngageGeometry::IsReachable(p, other->GetPositionX(),
                                                other->GetPositionY(), other->GetPositionZ()))
