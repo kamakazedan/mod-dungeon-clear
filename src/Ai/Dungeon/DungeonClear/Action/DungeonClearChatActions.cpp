@@ -289,8 +289,9 @@ bool DcOnAction::Execute(Event event)
     // announces. The follower's follow-tank trigger self-activates off the
     // leader's enabled flag via DungeonClearPartyTankValue, so nothing else is
     // needed for them. Leadership (FindLeaderTank) resolves to exactly one tank
-    // bot — lowest-GUID in a party, the Main Tank / best-geared tank in a raid —
-    // so exactly one bot takes the path below even with several tanks present.
+    // bot — the tank already holding a run, else lowest-GUID in a party, the
+    // Main Tank / best-geared tank in a raid — so exactly one bot takes the path
+    // below even with several tanks present.
     if (!DcLeaderSignal::IsDungeonClearLeader(bot))
     {
         if (!botAI->HasStrategy("dungeon clear", BOT_STATE_NON_COMBAT))
@@ -337,6 +338,32 @@ bool DcOnAction::Execute(Event event)
         botAI->ChangeStrategy("+dungeon clear", BOT_STATE_NON_COMBAT);
     if (!botAI->HasStrategy("dungeon clear combat", BOT_STATE_COMBAT))
         botAI->ChangeStrategy("+dungeon clear combat", BOT_STATE_COMBAT);
+
+    // One run per map. A run can still sit on another tank that was dead when
+    // this `dc on` reached us; it could take the lead back on its rez, and a
+    // later `dc off` here would leave it running. Only same-map members are
+    // reachable from this thread, so a run on a tank that released to the
+    // graveyard (PreventBotRelease = 0) is not cleared here.
+    //
+    // PickRunWing above latched the wing on that tank (it was still the run
+    // owner FindRunOwner returned), so the latch moves over with the run. Reset
+    // keeps the wing, so it is cleared on the old owner by hand: a stale copy
+    // there would come back if that tank leads a later run in this instance.
+    if (Group* group = bot->GetGroup())
+    {
+        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+        {
+            Player* member = ref->GetSource();
+            if (!member || member == bot || member->GetMap() != bot->GetMap())
+                continue;
+            PlayerbotAI* memberAI = GET_PLAYERBOT_AI(member);
+            if (!memberAI || !DcRun::Of(memberAI).enabled)
+                continue;
+            DcRun::Of(context).runWing = DcRun::Of(memberAI).runWing;
+            DcActionShared::DisableDungeonClear(memberAI, "Dungeon clear moved to " + bot->GetName() + ".");
+            DcRun::Of(memberAI).runWing = DcRunWing::Latch{};
+        }
+    }
 
     // Reset transient state and enable.
     DcRun::Of(context).enabled = true;
@@ -764,6 +791,10 @@ bool DcBossesAction::Execute(Event event)
                 panelRows.push_back(info);
     }
 
+    // Bosses this pass reports dead or skipped, so the event pass below can tell
+    // when the raid has moved past a repeatable event that never latches.
+    std::unordered_set<uint32> passedBossRows;
+
     for (DungeonBossInfo const& info : panelRows)
     {
         // Travel objectives (BossRosterRegistry) are not creatures and carry no
@@ -832,6 +863,8 @@ bool DcBossesAction::Execute(Event event)
             statusStr = "missing";
         else
             statusStr = "alive";  // exists in the instance, grid not yet loaded
+        if (statusStr == "dead" || statusStr == "skipped")
+            passedBossRows.insert(info.entry);
 
         // Wing label for split maps (empty for single-wing dungeons). On a
         // whole-dungeon Maraudon run this is the only place the wing surfaces
@@ -943,7 +976,7 @@ bool DcBossesAction::Execute(Event event)
         }
 
         uint32 const latchKey = DungeonEventExecutor::ConditionalLatchKey(ev->id);
-        std::string const evStatus =
+        std::string evStatus =
             cleared.count(latchKey) ? "dead"
             : skipped.count(latchKey) ? "skipped"
                                       : "alive";
@@ -981,6 +1014,26 @@ bool DcBossesAction::Execute(Event event)
                     idxField = std::to_string(BossOrderKey(info)) + ".5";
                     break;
                 }
+        }
+
+        // A repeatable event is never latched (it has to stay re-runnable after a
+        // wipe), so on its own it would read "alive" for the rest of the run. Once
+        // the first boss sorting after it is dead or skipped the raid is past it:
+        // report it done. Off-path events (index 99) have no boss after them and
+        // keep their latch status.
+        if (ev->repeatable && evStatus == "alive")
+        {
+            double const evIdx = std::stod(idxField);
+            DungeonBossInfo const* nextBoss = nullptr;
+            for (DungeonBossInfo const& info : bosses)
+            {
+                if (info.kind != DungeonAnchorKind::Boss || BossOrderKey(info) <= evIdx)
+                    continue;
+                if (!nextBoss || BossOrderKey(info) < BossOrderKey(*nextBoss))
+                    nextBoss = &info;
+            }
+            if (nextBoss && passedBossRows.count(nextBoss->entry))
+                evStatus = "dead";
         }
 
         std::ostringstream evMsg;
