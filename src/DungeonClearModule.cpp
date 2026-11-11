@@ -87,6 +87,7 @@
 #include "WarriorAiObjectContext.h"
 
 #include "BgQueueFill/DcBgQueueFillManager.h"
+#include "BotRun/DcBotRun.h"
 #include "DungeonQueueFill/DcDungeonQueueFillManager.h"
 #include "Util/DcProvisionBudget.h"
 #include "Util/DcSpectator.h"
@@ -616,6 +617,12 @@ public:
         // Ahead of the gate for the queue fills' reason: what it holds — pets it
         // put passive — it must hand back when the module goes off.
         DcLyceum::Tick(diff, DcModule::IsEnabled());
+
+        // Clears run for parties nobody is playing in (another module's bot
+        // dungeons). Ahead of the gate too: with the module off, every one it
+        // watches is failed, so its caller lets the party go. Cheap no-op
+        // when it watches none.
+        DcBotRun::Tick(diff, DcModule::IsEnabled());
 
         if (!DcModule::IsEnabled())
             return;

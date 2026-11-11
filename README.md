@@ -170,6 +170,22 @@ registers a `.dc` command plus a login hook for the `dungeon clear` strategy. It
 touches **no** playerbots file. Details:
 [How it integrates](https://github.com/jrad7/mod-dungeon-clear/wiki/How-It-Integrates).
 
+### Runs for parties nobody is playing in (`DcBotRun`)
+
+Another module whose bots get together through the dungeon finder on their own
+(mod-playerbots-plus's bot dungeons) asks for their clear through
+`src/BotRun/DcBotRun.h`. Nobody in such a group can say `dc on`, resume a pause
+or call a stuck run off, so `DcBotRun::Start` does: it latches the wing the
+dungeon finder made the group for, waits for the boss roster, switches
+`WaitAtBoss` off for the run and says `dc on` to the elected tank itself (the
+one call `IsAuthorized` lets through for it). The run is then watched the way
+`.dc test` watches its runs, with the same verdict kernel and the caller's
+limits: the whole party dead, a pause or stall past its grace, nothing moving
+forward for too long, an overall cap. A failed run is switched off; the caller
+reads the verdict with `Get` and lets the party go. A real player joining the
+group ends the watch and leaves the clear to them. `DC_BOT_RUN_API` says it is
+there. Without a caller it does nothing.
+
 ## Automated test runs
 
 `.dc test` is a **GM-only** harness, not part of normal play. One command rolls

@@ -36,6 +36,7 @@
 #include "Ai/Dungeon/DungeonClear/Value/DungeonClearStateValues.h"
 #include "Playerbots.h"
 #include "Ai/Dungeon/DungeonClear/DcValueKeys.h"
+#include "BotRun/DcBotRun.h"
 
 namespace
 {
@@ -61,6 +62,11 @@ namespace
 
     bool IsAuthorized(Player* bot, Event const& event)
     {
+        // A party with nobody playing in it, run for another module (see
+        // DcBotRun): its own `dc on`, said to the tank it chose, and nothing
+        // else. There is nobody in the group to authorize it.
+        if (DcBotRun::StartingFor(bot))
+            return true;
         Player* owner = const_cast<Event&>(event).getOwner();
         if (!owner)
             return false;

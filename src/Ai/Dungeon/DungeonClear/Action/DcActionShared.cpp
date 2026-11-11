@@ -8,6 +8,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcHazard.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRun.h"
 #include "TestRun/DcTestRunManager.h"
+#include "BotRun/DcBotRun.h"
 
 #include <algorithm>
 #include <cmath>
@@ -345,6 +346,9 @@ namespace DcActionShared
         // Run-end observer for the `.dc test` harness — cheap GUID compare,
         // no-op unless this leader is the monitored test run's tank.
         DcTestRunManager::Instance().OnRunDisabled(bot, reason);
+        // ...and for a party nobody is playing in, run for another module
+        // (DcBotRun): a set lookup, a no-op for every other run.
+        DcBotRun::OnRunDisabled(bot, reason);
     }
 
 

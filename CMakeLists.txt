@@ -1051,3 +1051,9 @@ AC_ADD_CONFIG_FILE("${CMAKE_CURRENT_LIST_DIR}/conf/mod_dungeon_clear.conf.dist")
 #    dropped them: Zul'Gurub's High Priestess Arlokk, summoned by the Gong of
 #    Bethekk, and Temple of Ahn'Qiraj's Ouro, summoned when a player reaches his
 #    mound. Each gets a boss anchor on its trigger plus a repeatable event.)
+
+# New files added: BotRun/DcBotRun.{h,cpp}
+#   (A clear for a party nobody is playing in, started and watched for another
+#    module: mod-playerbots-plus's bot dungeons, random bots that got together
+#    through the dungeon finder. Its own `dc on` past IsAuthorized, the `.dc
+#    test` verdict kernel to watch the run, the verdict kept for the caller.)
