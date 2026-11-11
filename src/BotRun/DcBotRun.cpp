@@ -252,7 +252,7 @@ namespace
 
     // Waiting for the clear to take: a tank alive in the dungeon, the wing
     // latched, the roster read, then `dc on`.
-    void StepStarting(Watch& w, Group* group, std::vector<Player*> const& members, uint32 dt)
+    void StepStarting(Watch& w, std::vector<Player*> const& members, uint32 dt)
     {
         w.stageMs += dt;
         bool const late = w.stageMs >= Limit(w.limits.startS);
@@ -514,7 +514,7 @@ namespace
             return;
         }
         if (w.phase == DcBotRun::Phase::Starting)
-            StepStarting(w, group, members, dt);
+            StepStarting(w, members, dt);
         else
             StepRunning(w, group, members, dt);
     }
