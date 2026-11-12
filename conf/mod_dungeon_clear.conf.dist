@@ -304,12 +304,35 @@ DungeonClear.SmartRestHealerManaReleasePct = 90
 DungeonClear.SmartRestDpsManaReleasePct = 90
 
 #
+#    DungeonClear.SmartRestLowManaClasses
+#    DungeonClear.SmartRestLowManaReleasePct
+#        Smart Rest only. DPS of classes that do most of their damage without
+#        mana -- a hunter's shots, an enhancement shaman's weapons -- need only
+#        SmartRestLowManaReleasePct mana for the party to move on, instead of
+#        SmartRestDpsManaReleasePct; the bar before a boss is that too. They
+#        share the DPS trigger (SmartRestDpsManaPct), their bar is kept at
+#        least 5 above it, and with SmartRestDrinkToFull on they still get up
+#        and follow when the rest ends: nobody waits on their mana. Healers and
+#        tanks of those classes keep their own bars.
+#        The classes are a mask: add up 1 Warrior, 2 Paladin, 4 Hunter,
+#        8 Rogue, 16 Priest, 32 Death Knight, 64 Shaman, 128 Mage,
+#        256 Warlock, 1024 Druid. 68 = hunters and shamans. 0 = none.
+#        Server-side only: the companion addon does not show them.
+#
+#        Default: 0, 25
+#
+
+DungeonClear.SmartRestLowManaClasses = 0
+DungeonClear.SmartRestLowManaReleasePct = 25
+
+#
 #    DungeonClear.SmartRestDrinkToFull
 #        Smart Rest only. A DPS bot still drinking when a rest ends finishes its
 #        drink before it walks after the tank: it stays seated until its mana is
 #        full, the drink runs out or a fight starts, then catches up. The tank
 #        waits for it at the party-spread gate like for anyone else trailing
-#        (see PartyMaxSpreadNonHealer). Healers and tanks are never held.
+#        (see PartyMaxSpreadNonHealer). Healers and tanks are never held, nor
+#        a DPS of SmartRestLowManaClasses.
 #            0 = stand up and follow the moment the rest ends
 #            1 = finish the drink
 #

@@ -64,6 +64,11 @@ namespace DcSmartRestDecision
         float manaPct = 100.0f;   // meaningful only when isManaUser
         bool  isManaUser = false; // powerType == POWER_MANA && maxMana > 0
         bool  isHealer = false;   // PlayerbotAI::IsHeal — selects the mana trigger
+        // A DPS of a class that does most of its damage without mana — a
+        // hunter, an enhancement shaman (SmartRestLowManaClasses): released at
+        // Inputs::lowManaReleasePct instead of the DPS bar. The glue never sets
+        // it on a healer or a tank, and a healer keeps the healer bar if it did.
+        bool  lowManaClass = false;
         // No isBot: bots and humans are held to identical bars. See the
         // kHumanReleaseMarginPct removal note above.
     };
@@ -86,6 +91,10 @@ namespace DcSmartRestDecision
         // instantly re-latch.
         float         healerManaReleasePct = kManaReleasePct;
         float         dpsManaReleasePct = kManaReleasePct;
+        // ...and for a Member::lowManaClass DPS (SmartRestLowManaReleasePct),
+        // which shares the DPS trigger: the party moves on once a hunter has
+        // this much, not the DPS bar. Kept above the DPS trigger like the rest.
+        float         lowManaReleasePct = kManaReleasePct;
 
         // The next pull is a BOSS and the tank is inside its engage range. Raises
         // the latch entry from the low role triggers to each member's MANA release
@@ -110,8 +119,9 @@ namespace DcSmartRestDecision
     float ManaTriggerPct(Member const& m, Inputs const& in);
 
     // Release bars for one member, bot and human alike: kReleasePct on HP and
-    // the role's mana release bar (Inputs::healerManaReleasePct or
-    // dpsManaReleasePct, kManaReleasePct unless configured) on mana, on every
+    // the role's mana release bar (Inputs::healerManaReleasePct,
+    // lowManaReleasePct for a Member::lowManaClass DPS, else dpsManaReleasePct;
+    // kManaReleasePct unless configured) on mana, on every
     // applicable dimension even one whose trigger is disabled (a rest is a
     // rest). Mana bar is 0 for non-mana users. Neither bar reads the triggers.
     float HpReleaseBar(Member const& m, Inputs const& in);

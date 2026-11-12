@@ -42,7 +42,8 @@ namespace DcSmartRest
     // Such a member finishes the drink before it walks after the tank: the
     // rest released on the healer's and the DPS's lower bars, and the last of
     // the mana would otherwise be left in the glass. Bounded by the drink
-    // itself, an aura that ends on its own. Healers and tanks are never held.
+    // itself, an aura that ends on its own. Healers and tanks are never held,
+    // nor a DPS of SmartRestLowManaClasses: nobody waits on its mana.
     bool DrinkingToFull(Player* member, Player* tank);
 
     // "Smart Rest: waiting on Neko (mana 34%), Bib (hp 61%) +1 more" — names

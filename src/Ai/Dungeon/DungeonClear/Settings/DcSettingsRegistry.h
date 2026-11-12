@@ -162,6 +162,14 @@ inline constexpr DcSettingDef kDcSettings[] =
     // the conf says, so a release can never re-latch on the spot.
     { "SmartRestHealerManaReleasePct", DcType::UInt, 90, 1, 100, true },
     { "SmartRestDpsManaReleasePct",    DcType::UInt, 90, 1, 100, true },
+    // ...and for a DPS of a class that does most of its damage without mana
+    // (a class mask, 1 << (class - 1): 4 hunter + 64 shaman = 68; 0 = none):
+    // the party moves on once it has SmartRestLowManaReleasePct, kept 5 above
+    // the DPS trigger like the DPS bar, and it is not held to finish a drink.
+    // Healers and tanks of those classes keep their own bars. Server-only: a
+    // class mask is no per-run knob for the addon.
+    { "SmartRestLowManaClasses",    DcType::UInt,  0, 0, 2047, false },
+    { "SmartRestLowManaReleasePct", DcType::UInt, 25, 1,  100, false },
     // A DPS bot still drinking when the rest ends finishes its drink before it
     // walks after the tank: it stays seated until full, or until the drink
     // runs out or a fight starts. Off = it stands up and follows at once.

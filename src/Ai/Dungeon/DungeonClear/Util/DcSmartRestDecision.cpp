@@ -23,7 +23,9 @@ namespace DcSmartRestDecision
     {
         if (!m.isManaUser)
             return 0.0f;
-        return m.isHealer ? in.healerManaReleasePct : in.dpsManaReleasePct;
+        if (m.isHealer)
+            return in.healerManaReleasePct;
+        return m.lowManaClass ? in.lowManaReleasePct : in.dpsManaReleasePct;
     }
 
     bool BelowTrigger(Member const& m, Inputs const& in)

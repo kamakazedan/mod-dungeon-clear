@@ -564,3 +564,88 @@ TEST(DcSmartRestTest, RoleBarsReleaseCannotInstantlyRelatch)
     ASSERT_FALSE(Decide(RoleBarInputs(true), party).latched);
     EXPECT_FALSE(Decide(RoleBarInputs(false), party).latched);
 }
+
+// ---- the low-mana classes' bar (SmartRestLowManaClasses) ------------------------
+
+namespace
+{
+    // The role bars above, and 25 for a hunter or a shaman doing damage.
+    Inputs LowManaInputs(bool latched)
+    {
+        Inputs in = RoleBarInputs(latched);
+        in.lowManaReleasePct = 25.0f;
+        return in;
+    }
+
+    // The base party with the caster DPS seat a hunter.
+    std::vector<Member> HunterParty()
+    {
+        auto party = BaseParty();
+        party[2].lowManaClass = true;
+        return party;
+    }
+}
+
+TEST(DcSmartRestTest, LowManaClassReleasesAtItsOwnBar)
+{
+    // A hunter at 30 is through where any other DPS at 30 holds the rest.
+    auto party = HunterParty();
+    party[2].manaPct = 30.0f;
+    EXPECT_FALSE(Decide(LowManaInputs(true), party).latched);
+    party[2].lowManaClass = false;
+    EXPECT_TRUE(Decide(LowManaInputs(true), party).latched);
+}
+
+TEST(DcSmartRestTest, LowManaClassBelowItsBarHolds)
+{
+    auto party = HunterParty();
+    party[2].manaPct = 24.0f;
+    Result const r = Decide(LowManaInputs(true), party);
+    EXPECT_TRUE(r.latched);
+    ASSERT_EQ(r.blockers.size(), 1u);
+    EXPECT_EQ(r.blockers[0], 2u);
+}
+
+TEST(DcSmartRestTest, LowManaClassSharesTheDpsTrigger)
+{
+    // Below the DPS trigger it starts a rest like any DPS; above it, nothing.
+    auto party = HunterParty();
+    party[2].manaPct = 9.0f;
+    EXPECT_TRUE(Decide(LowManaInputs(false), party).latched);
+    party[2].manaPct = 11.0f;
+    EXPECT_FALSE(Decide(LowManaInputs(false), party).latched);
+}
+
+TEST(DcSmartRestTest, LowManaClassBarIsItsBossTopOffBar)
+{
+    // At the boss a hunter at 30 does not hold the pull; a mage at 30 does.
+    Inputs in = LowManaInputs(false);
+    in.bossPull = true;
+    auto party = HunterParty();
+    party[2].manaPct = 30.0f;
+    EXPECT_FALSE(Decide(in, party).latched);
+    party[2].lowManaClass = false;
+    EXPECT_TRUE(Decide(in, party).latched);
+}
+
+TEST(DcSmartRestTest, LowManaHealerKeepsTheHealerBar)
+{
+    // A resto shaman is the party's healer, flag or no flag.
+    auto party = BaseParty();
+    party[1].lowManaClass = true;
+    party[1].manaPct = 30.0f;
+    Result const r = Decide(LowManaInputs(true), party);
+    EXPECT_TRUE(r.latched);
+    ASSERT_EQ(r.blockers.size(), 1u);
+    EXPECT_EQ(r.blockers[0], 1u);
+}
+
+TEST(DcSmartRestTest, LowManaClassUnsetMeansTheDpsBar)
+{
+    // Inputs that never set the low bar hold everyone to kManaReleasePct, as
+    // before the setting existed.
+    Inputs in = LatchedInputs();
+    auto party = HunterParty();
+    party[2].manaPct = kManaReleasePct - 1.0f;
+    EXPECT_TRUE(Decide(in, party).latched);
+}

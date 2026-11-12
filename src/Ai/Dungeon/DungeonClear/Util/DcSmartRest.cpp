@@ -34,12 +34,22 @@ namespace
     using DcSmartRestDecision::Member;
     using DcSmartRestDecision::Inputs;
 
+    // DungeonClear.SmartRestLowManaClasses: is `member` a DPS of one of them
+    // (a class mask, 1 << (class - 1))? Never a healer or a tank: the healer's
+    // mana is what a pull cannot start without, and a tank's is its threat.
+    bool LowManaClass(Player* member, uint32 classMask)
+    {
+        return classMask && (member->getClassMask() & classMask) && !PlayerbotAI::IsHeal(member) &&
+               !PlayerbotAI::IsTank(member);
+    }
+
     // Living, same-map group members — the exact population
     // DcPartyState::IsPartyReady gates on. `players` (optional) receives the
     // matching Player* per snapshot row so DescribeWait can name blockers.
     void BuildSnapshot(Player* leader, std::vector<Member>& out,
                        std::vector<Player*>* players = nullptr)
     {
+        uint32 const lowManaClasses = DcSettings::GetUInt(leader, "SmartRestLowManaClasses");
         Group* group = leader->GetGroup();
         if (!group)
         {
@@ -51,6 +61,7 @@ namespace
             if (m.isManaUser)
                 m.manaPct = leader->GetPowerPct(POWER_MANA);
             m.isHealer = PlayerbotAI::IsHeal(leader);
+            m.lowManaClass = LowManaClass(leader, lowManaClasses);
             out.push_back(m);
             if (players)
                 players->push_back(leader);
@@ -75,6 +86,7 @@ namespace
             if (m.isManaUser)
                 m.manaPct = member->GetPowerPct(POWER_MANA);
             m.isHealer = PlayerbotAI::IsHeal(member);
+            m.lowManaClass = LowManaClass(member, lowManaClasses);
             out.push_back(m);
             if (players)
                 players->push_back(member);
@@ -105,6 +117,10 @@ namespace
             in.healerManaTriggerPct);
         in.dpsManaReleasePct = releaseBar(
             static_cast<float>(DcSettings::GetUInt(leader, "SmartRestDpsManaReleasePct")),
+            in.dpsManaTriggerPct);
+        // A hunter's or enhancement shaman's bar shares the DPS trigger.
+        in.lowManaReleasePct = releaseBar(
+            static_cast<float>(DcSettings::GetUInt(leader, "SmartRestLowManaReleasePct")),
             in.dpsManaTriggerPct);
 
         // Boss-pull top-off: the next anchor is a real boss and the tank is
@@ -138,6 +154,10 @@ namespace DcSmartRest
             !DcSettings::GetBool(member, "SmartRestDrinkToFull"))
             return false;
         if (PlayerbotAI::IsHeal(member) || PlayerbotAI::IsTank(member))
+            return false;
+        // The party does not wait on a hunter's mana, so not on its drink
+        // either: it gets up and follows, and does its damage regardless.
+        if (LowManaClass(member, DcSettings::GetUInt(member, "SmartRestLowManaClasses")))
             return false;
         if (member->getPowerType() != POWER_MANA || member->GetMaxPower(POWER_MANA) == 0 ||
             member->GetPowerPct(POWER_MANA) >= DcSmartRestDecision::kReleasePct)
