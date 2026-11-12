@@ -4,8 +4,11 @@
  */
 
 #include "DungeonClearChatActions.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcAnchorDone.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRun.h"
 
+#include <algorithm>
+#include <cctype>
 #include <map>
 #include <optional>
 #include <sstream>
@@ -228,6 +231,50 @@ namespace
 
 namespace
 {
+    // The boss a `dc skip <boss>` / `dc unskip <boss>` names, the way `dc go`
+    // reads one: its creature entry, or a case-insensitive part of its name.
+    DungeonBossInfo const* FindNamedBoss(std::vector<DungeonBossInfo> const& bosses, std::string const& param)
+    {
+        if (param.empty())
+            return nullptr;
+        if (param.size() <= 9 && std::all_of(param.begin(), param.end(),
+                                             [](unsigned char c) { return std::isdigit(c) != 0; }))
+        {
+            uint32 const entry = static_cast<uint32>(std::stoul(param));
+            for (DungeonBossInfo const& info : bosses)
+                if (info.entry == entry)
+                    return &info;
+        }
+        std::string query = param;
+        std::transform(query.begin(), query.end(), query.begin(), ::tolower);
+        for (DungeonBossInfo const& info : bosses)
+        {
+            std::string name = info.name;
+            std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+            if (name.find(query) != std::string::npos)
+                return &info;
+        }
+        return nullptr;
+    }
+
+    // Why `info` cannot be skipped: it is done already, or the roster passes it
+    // over anyway. Empty when it can.
+    std::string WhyNotSkippable(Player* bot, AiObjectContext* context, DungeonBossInfo const& info)
+    {
+        if (info.skipByDesign)
+            return info.name + " is passed over anyway.";
+        if (info.kind == DungeonAnchorKind::Objective &&
+            context->GetValue<std::unordered_set<uint32>&>(DcKey::ClearedAnchors)->Get().count(info.entry))
+            return info.name + " is already done.";
+        InstanceScript* inst = DcTargeting::GetInstanceScript(bot);
+        uint32 const mask = inst ? inst->GetCompletedEncounterMask() : 0u;
+        if (info.kind == DungeonAnchorKind::Boss && info.encounterIndex < 32 && (mask & (1u << info.encounterIndex)))
+            return info.name + " is already dead.";
+        if (DcAnchorDoneByInstanceScript(info, inst))
+            return info.name + " is already done.";
+        return {};
+    }
+
     // "lbrs, ubrs" — the wing tokens a player can name on `layout`.
     std::string WingTokens(DungeonWingLayout const& layout)
     {
@@ -489,12 +536,65 @@ bool DcSkipAction::Execute(Event event)
         return false;
     }
 
-    // A due off-path CONDITIONAL event preempts the boss pull (trigger rel 31),
-    // so a `dc skip` while one is active should retire THAT event — latch its
-    // synthetic key cleared+skipped so it stops firing — rather than skipping the
-    // boss behind it. Required events that the bot can't drive are unstuck here.
-    if (Map* map = bot->GetMap())
+    std::unordered_set<uint32>& skipped =
+        context->GetValue<std::unordered_set<uint32>&>(DcKey::Skipped)->Get();
+    std::optional<DungeonBossInfo> current = AI_VALUE(std::optional<DungeonBossInfo>, DcKey::NextDungeonBoss);
+
+    std::string const param = event.getParam();
+    if (!param.empty())
     {
+        // `dc skip <boss>`: that boss, wherever it is in the run.
+        std::vector<DungeonBossInfo> const bosses = AI_VALUE(std::vector<DungeonBossInfo>, DcKey::DungeonBosses);
+        DungeonBossInfo const* named = FindNamedBoss(bosses, param);
+        if (!named)
+        {
+            DcRefuse(botAI, bot, "Could not find boss matching: " + param);
+            return false;
+        }
+        std::string const why = WhyNotSkippable(bot, context, *named);
+        if (!why.empty())
+        {
+            DcRefuse(botAI, bot, why);
+            return false;
+        }
+        if (skipped.count(named->entry))
+        {
+            DcStatusPublisher::SendAddonMessage(botAI, "CHAT\t" + named->name + " is skipped already.");
+            return true;
+        }
+        if (!current.has_value() || current->entry != named->entry)
+        {
+            // Not what the run is heading for yet: it is left out when it would
+            // come up, and the run carries on to where it was going.
+            skipped.insert(named->entry);
+            if (DcRun::Of(context).selectedBossEntry == named->entry)
+                DcRun::Of(context).selectedBossEntry = 0u;
+            context->GetValue<std::optional<DungeonBossInfo>>(DcKey::NextDungeonBoss)->Reset();
+            std::optional<DungeonBossInfo> const after =
+                AI_VALUE(std::optional<DungeonBossInfo>, DcKey::NextDungeonBoss);
+            if (after.has_value())
+                DcStatusPublisher::SendAddonMessage(botAI, "CHAT\tSkipped " + named->name + ". Still heading to " +
+                                                               after->name + ".");
+            else
+            {
+                DcStatusPublisher::SendAddonMessage(botAI, "CHAT\tSkipped " + named->name +
+                                                               ". No bosses left \xe2\x80\x94 disabling.");
+                DcRun::Of(context).enabled = false;
+                DcStatusPublisher::UnmarkActiveTank(bot->GetGUID());
+            }
+            botAI->DoSpecificAction("dc status", event, true);
+            return true;
+        }
+        // The boss the run is heading for: skipped below, as a bare `dc skip`
+        // skips it -- not an off-path event that happens to be due.
+    }
+    else if (Map* map = bot->GetMap())
+    {
+        // A due off-path CONDITIONAL event preempts the boss pull (trigger rel
+        // 31), so a `dc skip` while one is active should retire THAT event —
+        // latch its synthetic key cleared+skipped so it stops firing — rather
+        // than skipping the boss behind it. Required events that the bot can't
+        // drive are unstuck here.
         if (DungeonEvent const* ev =
                 DungeonEventExecutor::FindDueConditionalEvent(bot, context, map->GetId()))
         {
@@ -502,7 +602,7 @@ bool DcSkipAction::Execute(Event event)
             auto& cleared =
                 context->GetValue<std::unordered_set<uint32>&>(DcKey::ClearedAnchors)->Get();
             cleared.insert(latchKey);
-            context->GetValue<std::unordered_set<uint32>&>(DcKey::Skipped)->Get().insert(latchKey);
+            skipped.insert(latchKey);
             context->GetValue<std::string&>(DcKey::StallReason)->Get().clear();
             context->GetValue<std::string&>(DcKey::LastSaidReason)->Get().clear();
             DcStatusPublisher::SendAddonMessage(botAI, "CHAT\tSkipped event '" + ev->name + "'.");
@@ -511,15 +611,12 @@ bool DcSkipAction::Execute(Event event)
         }
     }
 
-    std::optional<DungeonBossInfo> current = AI_VALUE(std::optional<DungeonBossInfo>, DcKey::NextDungeonBoss);
     if (!current.has_value())
     {
         DcRefuse(botAI, bot, "No current boss to skip.");
         return false;
     }
 
-    std::unordered_set<uint32>& skipped =
-        context->GetValue<std::unordered_set<uint32>&>(DcKey::Skipped)->Get();
     skipped.insert(current->entry);
 
     // New target gets a clean slate (abort any in-flight pull on the old target).
@@ -553,6 +650,52 @@ bool DcSkipAction::Execute(Event event)
     }
 
     // Trigger instant status addon message update
+    botAI->DoSpecificAction("dc status", event, true);
+    return true;
+}
+
+bool DcUnskipAction::Execute(Event event)
+{
+    if (!IsAuthorized(bot, event))
+    {
+        DcRefuse(botAI, bot, "Not authorized to unskip");
+        return false;
+    }
+    // The leader owns the skip list; the keyword fan-out reaches the rest too.
+    if (!DcLeaderSignal::IsDungeonClearLeader(bot))
+        return true;
+    if (!DcRun::Of(context).enabled)
+    {
+        DcRefuse(botAI, bot, "Dungeon clear is not enabled.");
+        return false;
+    }
+
+    std::string const param = event.getParam();
+    if (param.empty())
+    {
+        DcRefuse(botAI, bot, "Usage: .dc unskip <boss name or entry>");
+        return false;
+    }
+    std::vector<DungeonBossInfo> const bosses = AI_VALUE(std::vector<DungeonBossInfo>, DcKey::DungeonBosses);
+    DungeonBossInfo const* named = FindNamedBoss(bosses, param);
+    if (!named)
+    {
+        DcRefuse(botAI, bot, "Could not find boss matching: " + param);
+        return false;
+    }
+    if (!context->GetValue<std::unordered_set<uint32>&>(DcKey::Skipped)->Get().erase(named->entry))
+    {
+        DcRefuse(botAI, bot, named->name + " is not skipped.");
+        return false;
+    }
+
+    // Back in the candidate list: the run holds what it is heading for, and
+    // takes this one in its place in the order.
+    context->GetValue<std::optional<DungeonBossInfo>>(DcKey::NextDungeonBoss)->Reset();
+    std::optional<DungeonBossInfo> const next = AI_VALUE(std::optional<DungeonBossInfo>, DcKey::NextDungeonBoss);
+    DcStatusPublisher::SendAddonMessage(botAI, "CHAT\t" + named->name + " is back in the run. Heading to " +
+                                                   (next.has_value() ? next->name : std::string("the next boss")) +
+                                                   ".");
     botAI->DoSpecificAction("dc status", event, true);
     return true;
 }

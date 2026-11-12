@@ -1,7 +1,7 @@
 /*
  * mod-dungeon-clear — DungeonClearCommand.cpp
  *
- * Slash command `.dc on|off|skip|status|bosses`. A convenience entry point that
+ * Slash command `.dc on|off|skip|unskip|status|bosses`. A convenience entry point that
  * works with zero config (unlike the chat keywords, which need the
  * "dungeon clear" strategy applied — see DungeonClearModule.cpp).
  *
@@ -359,6 +359,7 @@ public:
             { "on",     HandleOn,     SEC_PLAYER, Console::No },
             { "off",    HandleOff,    SEC_PLAYER, Console::No },
             { "skip",   HandleSkip,   SEC_PLAYER, Console::No },
+            { "unskip", HandleUnskip, SEC_PLAYER, Console::No },
             { "pause",  HandlePause,  SEC_PLAYER, Console::No },
             { "pull",   HandlePull,   SEC_PLAYER, Console::No },
             { "status", HandleStatus, SEC_PLAYER, Console::No },
@@ -381,7 +382,11 @@ public:
     // `.dc wing [wing]` shows or changes it without toggling the run.
     static bool HandleOn(ChatHandler* handler, Optional<std::string> wing) { return RunDcCommand(handler, "dc on", wing ? *wing : ""); }
     static bool HandleOff(ChatHandler* handler)    { return RunDcCommand(handler, "dc off"); }
-    static bool HandleSkip(ChatHandler* handler)   { return RunDcCommand(handler, "dc skip"); }
+    // `.dc skip [boss]` -- the boss the run is heading for, or the one named
+    // (an entry or part of its name) wherever it is; `.dc unskip <boss>` puts
+    // a skipped one back.
+    static bool HandleSkip(ChatHandler* handler, Tail boss) { return RunDcCommand(handler, "dc skip", std::string(boss)); }
+    static bool HandleUnskip(ChatHandler* handler, Tail boss) { return RunDcCommand(handler, "dc unskip", std::string(boss)); }
     static bool HandlePause(ChatHandler* handler)  { return RunDcCommand(handler, "dc pause"); }
     static bool HandlePull(ChatHandler* handler, Optional<std::string> param) { return RunDcCommand(handler, "dc pull", param ? *param : ""); }
     static bool HandleStatus(ChatHandler* handler, Optional<std::string> param) { return RunDcCommand(handler, "dc status", param ? *param : ""); }

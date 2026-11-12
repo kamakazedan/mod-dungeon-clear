@@ -70,7 +70,8 @@ session, so it needs no group.)
 | `.dc on` | `dc on` / `dungeon clear on` | Start the clear. |
 | `.dc off` | `dc off` / `dungeon clear off` | Stop and return bots to the player. |
 | `.dc pause` | `dc pause` / `dungeon clear pause` | Soft-stop in place; resume with the same command. |
-| `.dc skip` | `dc skip` | Skip the current objective if the tank is stalled. |
+| `.dc skip [boss]` | `dc skip [boss]` | Skip the current objective if the tank is stalled; with a boss (its entry or part of its name), skip that one wherever it is in the run. |
+| `.dc unskip <boss>` | `dc unskip <boss>` | Put a skipped boss back in the run, in its place in the order. |
 | `.dc pull` | `dc pull` / `dungeon clear pull` | Cycle the pull mode. |
 | `.dc status` | `dc status` | Print the current run status. |
 | `.dc bosses` | `dc bosses` | List the dungeon's bosses and kill state. |
@@ -185,6 +186,14 @@ forward for too long, an overall cap. A failed run is switched off; the caller
 reads the verdict with `Get` and lets the party go. A real player joining the
 group ends the watch and leaves the clear to them. `DC_BOT_RUN_API` says it is
 there. Without a caller it does nothing.
+
+### Commands from another module (`DcCommandApi.h`)
+
+A module that steers a run from what a player says (mod-ollama-chat reads "skip
+Oggleflint" or "ok im done" out of party chat) sends the tank the same `dc`
+actions a typed command does, with the player as the issuer, and every check
+and answer is the action's own. `src/DcCommandApi.h` says what they take:
+`DC_COMMAND_API` 1 is `dc skip <boss>` and `dc unskip <boss>`.
 
 ## Automated test runs
 

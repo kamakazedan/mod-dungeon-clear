@@ -63,6 +63,7 @@ public:
         creators["dc on"] = &DungeonClearActionContext::dc_on;
         creators["dc off"] = &DungeonClearActionContext::dc_off;
         creators["dc skip"] = &DungeonClearActionContext::dc_skip;
+        creators["dc unskip"] = &DungeonClearActionContext::dc_unskip;
         creators["dc pause"] = &DungeonClearActionContext::dc_pause;
         creators["dc pull"] = &DungeonClearActionContext::dc_pull;
         creators["dc status"] = &DungeonClearActionContext::dc_status;
@@ -134,6 +135,7 @@ private:
     static Action* dc_on(PlayerbotAI* ai) { return new DcOnAction(ai); }
     static Action* dc_off(PlayerbotAI* ai) { return new DcOffAction(ai); }
     static Action* dc_skip(PlayerbotAI* ai) { return new DcSkipAction(ai); }
+    static Action* dc_unskip(PlayerbotAI* ai) { return new DcUnskipAction(ai); }
     static Action* dc_pause(PlayerbotAI* ai) { return new DcPauseAction(ai); }
     static Action* dc_pull(PlayerbotAI* ai) { return new DcPullAction(ai); }
     static Action* dc_status(PlayerbotAI* ai) { return new DcStatusAction(ai); }

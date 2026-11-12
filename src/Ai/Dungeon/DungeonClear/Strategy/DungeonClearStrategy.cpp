@@ -441,7 +441,7 @@ void DungeonClearStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
         "dungeon clear loot roll pending",
         { NextAction("loot roll", DcRel::LootRollPending) }));
 
-    // Chat-keyword triggers (`dc on/off/skip/status/bosses` + long aliases).
+    // Chat-keyword triggers (`dc on/off/skip/unskip/status/bosses` + long aliases).
     // Folded in here so there is a single "dungeon clear" strategy: one name to
     // apply (via config or the login hook), which is what lets self-bots —
     // built from config when `.playerbots bot self` is toggled — pick up the
@@ -454,6 +454,7 @@ void DungeonClearStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("dc off",            { NextAction("dc off",    chatRel) }));
     triggers.push_back(new TriggerNode("dungeon clear off", { NextAction("dc off",    chatRel) }));
     triggers.push_back(new TriggerNode("dc skip",           { NextAction("dc skip",   chatRel) }));
+    triggers.push_back(new TriggerNode("dc unskip",         { NextAction("dc unskip", chatRel) }));
     // Single toggle: pauses when running, resumes when paused.
     triggers.push_back(new TriggerNode("dc pause",            { NextAction("dc pause", chatRel) }));
     triggers.push_back(new TriggerNode("dungeon clear pause", { NextAction("dc pause", chatRel) }));

@@ -24,10 +24,24 @@ public:
     bool Execute(Event event) override;
 };
 
+// `dc skip` passes over what the run is heading for (a due off-path event
+// first, else the next boss); `dc skip <boss>` -- an entry or part of a name
+// -- passes over that boss, wherever it is in the run: ahead, it is left out
+// when it comes up and the run carries on to where it was going.
 class DcSkipAction : public Action
 {
 public:
     DcSkipAction(PlayerbotAI* botAI) : Action(botAI, "dc skip") {}
+    bool Execute(Event event) override;
+};
+
+// `dc unskip <boss>`: a boss skipped earlier is back in the run, in its place in
+// the order. Behind the run, it is done once nothing is left ahead (`dc go
+// <boss>` turns back for it now).
+class DcUnskipAction : public Action
+{
+public:
+    DcUnskipAction(PlayerbotAI* botAI) : Action(botAI, "dc unskip") {}
     bool Execute(Event event) override;
 };
 
