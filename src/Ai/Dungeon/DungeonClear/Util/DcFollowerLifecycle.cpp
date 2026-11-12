@@ -410,7 +410,7 @@ void DcFollowerLifecycle::RemoveFollowerPassive(Player* follower)
 bool DcFollowerLifecycle::HoldsWithStay(ObjectGuid player)
 {
     std::lock_guard<std::mutex> lock(g_dcPassiveMutex);
-    return g_dcHealerStayStates.count(player) != 0;
+    return g_dcHealerStayStates.contains(player);
 }
 
 void DcFollowerLifecycle::ReapStrandedPassives()

@@ -264,7 +264,7 @@ namespace
         if (info.skipByDesign)
             return info.name + " is passed over anyway.";
         if (info.kind == DungeonAnchorKind::Objective &&
-            context->GetValue<std::unordered_set<uint32>&>(DcKey::ClearedAnchors)->Get().count(info.entry))
+            context->GetValue<std::unordered_set<uint32>&>(DcKey::ClearedAnchors)->Get().contains(info.entry))
             return info.name + " is already done.";
         InstanceScript* inst = DcTargeting::GetInstanceScript(bot);
         uint32 const mask = inst ? inst->GetCompletedEncounterMask() : 0u;
@@ -557,7 +557,7 @@ bool DcSkipAction::Execute(Event event)
             DcRefuse(botAI, bot, why);
             return false;
         }
-        if (skipped.count(named->entry))
+        if (skipped.contains(named->entry))
         {
             DcStatusPublisher::SendAddonMessage(botAI, "CHAT\t" + named->name + " is skipped already.");
             return true;
