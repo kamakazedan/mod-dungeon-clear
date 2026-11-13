@@ -187,6 +187,15 @@ reads the verdict with `Get` and lets the party go. A real player joining the
 group ends the watch and leaves the clear to them. `DC_BOT_RUN_API` says it is
 there. Without a caller it does nothing.
 
+Deaths are got over the way a party would, as many times as the caller allows
+(`Limits::corpseRuns`, `Limits::wipeRegroups`, API 2): whoever nobody left can
+resurrect, or nobody managed to in time, comes back in at the entrance at half
+health and mana and is brought back to the tank (a corpse run), and a party
+that wipes is revived at the entrance together and carries on, as a raid does.
+Getting closer to the next target counts afresh after either, so the walk back
+is not time without progress. Past the limits, a wipe or a death nobody can
+raise ends the run, as it always did. A run a player is in is unaffected.
+
 A bot run leaves nobody to ask what went wrong, and its party is gone a moment
 after it ends, so `DungeonClear.log` gets the run's diag snapshot (the one
 `.dc test` records at teardown: where everyone is, the target and the route to

@@ -110,13 +110,25 @@ namespace DcRezRecovery
     // it evaluates anything, because only a living rez class is ever elected.
     bool IsElectedRezzer(Player* bot);
 
-    // RAID full-wipe recovery: revive every same-map BOT member at the
-    // instance entrance (dungeon-catalogue coords), drop the lost fight's
-    // combat/threat/targets, reset the owner's approach cursors, and leave the
-    // run ENABLED to continue from the entrance. Humans are never revived or
-    // relocated. False when no entrance row exists for the map (the caller
-    // falls back to the classic disable).
+    // Full-wipe recovery -- a raid's, the Oculus', and a bot run's while it has
+    // regroups left (DcRunState::botRegroupsLeft, one spent): revive every
+    // same-map BOT member at the instance entrance (dungeon-catalogue coords),
+    // drop the lost fight's combat/threat/targets, reset the owner's approach
+    // cursors, and leave the run ENABLED to continue from the entrance. Humans
+    // are never revived or relocated. False when no entrance row exists for the
+    // map (the caller falls back to the classic disable).
     bool RegroupAtEntrance(Player* bot);
+
+    // A bot run's corpse run, while it has some left (DcRunState::
+    // botCorpseRunsLeft, one spent): every dead BOT member on the map that
+    // nobody left can resurrect -- or nobody managed to in time -- comes back
+    // in at the instance entrance, the way a player who runs back does (at half
+    // health and mana, no resurrection sickness), and the run carries on; the
+    // stranded recovery brings them back to the tank. When the run's owner is
+    // among them its approach cursors are reset, as for a regroup. False when
+    // the run has none left or no entrance row exists for the map (the caller
+    // falls back to the classic disable).
+    bool CorpseRun(Player* bot);
 
     // "Neko is coming to resurrect Bib." / "Waiting for you to resurrect
     // Bib." — one status-panel sentence for the current recovery, empty when

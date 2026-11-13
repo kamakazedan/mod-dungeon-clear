@@ -2773,6 +2773,14 @@ bool DungeonClearDisableOnDeathAction::Execute(Event /*event*/)
         DcRezRecovery::RegroupAtEntrance(bot))
         return true;
 
+    // A party nobody is playing in, while it has corpse runs left (DcBotRun):
+    // whoever nobody left can resurrect -- or nobody managed to in time --
+    // comes back in at the entrance and catches up, instead of the run ending.
+    if ((plan.verdict.reason == DcRezDecision::Reason::NoRezzer ||
+         plan.verdict.reason == DcRezDecision::Reason::TimedOut) &&
+        DcRezRecovery::CorpseRun(bot))
+        return true;
+
     std::string reason;
     switch (plan.verdict.reason)
     {

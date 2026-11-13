@@ -114,6 +114,59 @@ namespace
     // DcLeaderSignal::FindRunOwner and the header comment.
     Player* ResolveRunOwner(Player* bot) { return DcLeaderSignal::FindRunOwner(bot); }
 
+    // Where a party comes back in: the dungeon catalogue's row for the map (its
+    // rows carry the world-DB areatrigger targets), none -> the caller falls
+    // back to the classic disable.
+    //
+    // On a split map the row is the RUN's wing's (row token == wing token): a
+    // wiped UBRS party regroups at the UBRS entrance, a Scarlet Monastery
+    // Library party at the Library's — not at whichever wing's row happens to
+    // come first in the table. Any other map (or no wing resolved) takes the
+    // first non-scenario row for the map.
+    //
+    // THE OCULUS COMES BACK IN AT THE PORTAL LANDING, not the entrance. The
+    // entrance floor is an island of its own: a party revived there would have to
+    // re-cross the Nexus Portal, whose objective has already latched, and walk to
+    // Drakos's ring for the givers anyway. The landing is where the portal's own
+    // spell puts a player, beside the givers and the lift-off pad.
+    struct Entrance
+    {
+        DcTestDungeonRegistry::Row const* row = nullptr;
+        float x = 0.0f, y = 0.0f, z = 0.0f, o = 0.0f;
+    };
+
+    Entrance EntranceFor(Player* owner, Map const* map)
+    {
+        Entrance at;
+        std::string const wingToken = DcRunWing::ActiveWingToken(owner);
+        for (DcTestDungeonRegistry::Row const& r : DcTestDungeonRegistry::All())
+        {
+            // A scenario's drop point is mid-instance, never the entrance.
+            if (r.mapId != map->GetId() || DcTestDungeonRegistry::IsScenario(r))
+                continue;
+            if (!wingToken.empty() && wingToken == r.token)
+            {
+                at.row = &r;
+                break;
+            }
+            if (!at.row)
+                at.row = &r;
+        }
+        if (!at.row)
+            return at;
+        at.x = at.row->x;
+        at.y = at.row->y;
+        at.z = at.row->z;
+        at.o = at.row->o;
+        if (map->GetId() == DcOculus::MAP_ID)
+        {
+            at.x = DcOculus::PORTAL_LAND_X;
+            at.y = DcOculus::PORTAL_LAND_Y;
+            at.z = DcOculus::PORTAL_LAND_Z;
+        }
+        return at;
+    }
+
     // Is a live hostile nobody is fighting standing beside this body? Then a rezzer
     // walking to it walks into an unpulled pack — see DcRezDecision's
     // UnsafeStandDown branch. Idle only: a mob still fighting the party is the
@@ -439,6 +492,10 @@ namespace
         // air where no body can be reached, and dead bosses stay dead — ending the
         // run on the first one would make a battery measure nothing but that.
         else if (bot->GetMapId() == DcOculus::MAP_ID)
+            in.regroupOnWipe = true;
+        // A party nobody is playing in, while it has regroups left (DcBotRun):
+        // it runs back in from the entrance and tries again.
+        else if (run.botRegroupsLeft > 0)
             in.regroupOnWipe = true;
         // Raid corpse piles get more clock: even in parallel, waves of raises
         // (each adding rezzers back) and the drinking between them take real
@@ -802,49 +859,20 @@ namespace DcRezRecovery
         if (!map)
             return false;
 
-        // The entrance teleport target comes from the dungeon catalogue (its
-        // rows carry the world-DB areatrigger targets). No row -> the caller
-        // falls back to the classic disable.
-        //
-        // On a split map the row is the RUN's wing's (row token == wing token):
-        // a wiped UBRS party regroups at the UBRS entrance, a Scarlet Monastery
-        // Library party at the Library's — not at whichever wing's row happens to
-        // come first in the table. Any other map (or no wing resolved) takes the
-        // first non-scenario row for the map, as before.
-        std::string const wingToken = DcRunWing::ActiveWingToken(owner);
-        DcTestDungeonRegistry::Row const* row = nullptr;
-        for (DcTestDungeonRegistry::Row const& r : DcTestDungeonRegistry::All())
-        {
-            // A scenario's drop point is mid-instance, never the entrance.
-            if (r.mapId != map->GetId() || DcTestDungeonRegistry::IsScenario(r))
-                continue;
-            if (!wingToken.empty() && wingToken == r.token)
-            {
-                row = &r;
-                break;
-            }
-            if (!row)
-                row = &r;
-        }
-        if (!row)
+        Entrance const at = EntranceFor(owner, map);
+        if (!at.row)
             return false;
+        DcTestDungeonRegistry::Row const* const row = at.row;
+        float const destX = at.x, destY = at.y, destZ = at.z, destO = at.o;
 
-        // THE OCULUS REGROUPS AT THE PORTAL LANDING, not the entrance. The entrance
-        // floor is an island of its own: a party revived there would have to re-cross
-        // the Nexus Portal, whose objective has already latched, and walk to Drakos's
-        // ring for the givers anyway. The landing is where the portal's own spell puts
-        // a player, beside the givers and the lift-off pad.
-        float destX = row->x, destY = row->y, destZ = row->z, destO = row->o;
-        if (map->GetId() == DcOculus::MAP_ID)
-        {
-            destX = DcOculus::PORTAL_LAND_X;
-            destY = DcOculus::PORTAL_LAND_Y;
-            destZ = DcOculus::PORTAL_LAND_Z;
-        }
-
+        DcRunState& botRun = DcRun::Of(ownerAI);
+        bool const raid = map->IsRaid();
+        if (!raid && botRun.botRegroupsLeft > 0)
+            --botRun.botRegroupsLeft;   // a bot run's: one spent
         LOG_INFO("playerbots.dungeonclear",
-                 "[DC:{}] raid wipe -> reviving the raid at the {} entrance and "
-                 "continuing the run", owner->GetName(), row->name);
+                 "[DC:{}] {} wipe -> reviving the {} at the {} entrance and continuing the run{}", owner->GetName(),
+                 raid ? "raid" : "party", raid ? "raid" : "party", row->name,
+                 raid ? std::string() : " (" + std::to_string(botRun.botRegroupsLeft) + " regroup(s) left)");
 
         Group* group = owner->GetGroup();
         auto const regroupMember = [&](Player* member)
@@ -908,8 +936,91 @@ namespace DcRezRecovery
 
         if (PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot))
             DcStatusPublisher::SendAddonMessage(
-                botAI, "CHAT	The raid wiped — regrouping at the entrance "
-                       "and continuing.");
+                botAI, raid ? "CHAT	The raid wiped — regrouping at the entrance and continuing."
+                            : "CHAT	The party wiped — regrouping at the entrance and continuing.");
+        return true;
+    }
+
+    bool CorpseRun(Player* bot)
+    {
+        if (!bot)
+            return false;
+        Player* owner = ResolveRunOwner(bot);
+        PlayerbotAI* ownerAI = owner ? GET_PLAYERBOT_AI(owner) : nullptr;
+        if (!ownerAI)
+            return false;
+        DcRunState& run = DcRun::Of(ownerAI);
+        if (run.botCorpseRunsLeft == 0)
+            return false;
+        Map* map = owner->FindMap();
+        if (!map)
+            return false;
+        Entrance const at = EntranceFor(owner, map);
+        if (!at.row)
+            return false;
+
+        std::string names;
+        bool ownerMoved = false;
+        auto const runBack = [&](Player* member)
+        {
+            if (!member || !member->IsInWorld() || member->GetMapId() != map->GetId())
+                return;
+            if (member->IsAlive() && !member->HasPlayerFlag(PLAYER_FLAGS_GHOST))
+                return;
+            PlayerbotAI* memberAI = GET_PLAYERBOT_AI(member);
+            if (!memberAI)
+                return;  // a human releases and runs back on their own
+
+            // As the regroup does: the lost fight dropped from both sides, the
+            // target cleared, Spirit of Redemption off, the corpse to bones. Up at
+            // half health and mana, the way a player who ran back is, with no
+            // resurrection sickness.
+            member->GetThreatMgr().ClearAllThreat();
+            member->CombatStop(true);
+            member->AttackStop();
+            member->SetTarget();
+            memberAI->GetAiObjectContext()->GetValue<Unit*>(DcKey::Stock::CurrentTarget)->Set(nullptr);
+            member->RemoveAurasDueToSpell(27827);
+            member->ResurrectPlayer(0.5f, /*applySickness*/ false);
+            member->SpawnCorpseBones();
+            member->TeleportTo(at.row->mapId, at.x, at.y, at.z, at.o);
+            names += (names.empty() ? "" : ", ") + member->GetName();
+            ownerMoved = ownerMoved || member == owner;
+        };
+        if (Group* group = owner->GetGroup())
+        {
+            for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+                runBack(ref->GetSource());
+        }
+        else
+            runBack(owner);
+        if (names.empty())
+            return false;
+
+        --run.botCorpseRunsLeft;
+        // The recovery episode is over: everyone is up.
+        run.rezPendingSinceMs = 0;
+        run.rezAnnounceMs = 0;
+        run.noRezzerSinceMs = 0;
+        run.noRezzerQuietSinceMs = 0;
+        if (ownerMoved)
+        {
+            // The owner starts again from the entrance: every cursor pointed at
+            // where it died is stale, as after a regroup.
+            AiObjectContext* ctx = ownerAI->GetAiObjectContext();
+            ctx->GetValue<DcPullContext&>(DcKey::PullContext)->Get().Reset();
+            ctx->GetValue<DcApproachState&>(DcKey::ApproachState)->Get().Reset();
+            ctx->GetValue<ChunkedPathfinder::Result&>(DcKey::LongPath)->Reset();
+            ctx->GetValue<uint32>(DcKey::StickyBoss)->Set(0u);
+            ctx->GetValue<std::string&>(DcKey::StallReason)->Get().clear();
+            run.progress.stampMs = 0;
+        }
+        LOG_INFO("playerbots.dungeonclear",
+                 "[DC:{}] corpse run: {} back in at the {} entrance -- nobody left could resurrect them ({} left "
+                 "this run)",
+                 owner->GetName(), names, at.row->name, run.botCorpseRunsLeft);
+        if (PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot))
+            DcStatusPublisher::SendAddonMessage(botAI, "CHAT\t" + names + " ran back in from the entrance.");
         return true;
     }
 

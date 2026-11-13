@@ -84,6 +84,15 @@ struct DcRunState
     // one honest fact of the run session, cleared with it by Reset().
     bool        raidRun = false;
 
+    // A run nobody is playing in (DcBotRun) gets over deaths the way a party
+    // would, while these last: whoever nobody left can resurrect -- or nobody
+    // managed to in time -- comes back in at the entrance and catches up (a
+    // corpse run, DcRezRecovery::CorpseRun), and a party that wipes runs back
+    // in together and tries again (RegroupAtEntrance). Set by DcBotRun right
+    // after `dc on`; 0 for every run a player is in, which ends as before.
+    uint32      botCorpseRunsLeft = 0;
+    uint32      botRegroupsLeft   = 0;
+
     // Short human phrase describing WHY the run is paused, for the status panel to
     // tell a manual `dc pause` apart from a door auto-pause. Set at each pause site
     // the moment `paused` flips true; read only while paused. Empty falls back to a

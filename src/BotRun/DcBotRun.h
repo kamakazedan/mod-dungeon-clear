@@ -23,6 +23,12 @@
 //     and an overall cap. The verdict comes from DcTestRunVerdict, the same
 //     kernel the harness uses, with the caller's limits.
 //
+//   * Deaths are got over the way a party would, while the caller's limits
+//     last (API 2): whoever nobody left can resurrect comes back in at the
+//     entrance and catches up (a corpse run), and a party that wipes runs
+//     back in together and tries again. Past them, a wipe or a death nobody
+//     can raise ends the run, as before.
+//
 //   * A failed run is switched off. What happens to the party after that
 //     (leaving, going home) is the caller's: this only reports.
 //
@@ -50,7 +56,7 @@
 
 class Player;
 
-#define DC_BOT_RUN_API 1
+#define DC_BOT_RUN_API 2
 
 namespace DcBotRun
 {
@@ -64,6 +70,10 @@ namespace DcBotRun
         uint32_t pauseGraceS = 60;    // paused (a door, a held run): nobody will resume it
         uint32_t wipeGraceS  = 15;    // everyone dead, with nobody to rez
         uint32_t startS      = 120;   // to get going: the party in, the roster read, `dc on` taken
+        // API 2. 0 for none: the first wipe, or the first death nobody can
+        // raise, ends the run.
+        uint32_t corpseRuns   = 0;    // members nobody can raise, back in at the entrance
+        uint32_t wipeRegroups = 0;    // wipes the party runs back in from
     };
 
     enum class Phase : uint8_t

@@ -37,6 +37,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcLeaderSignal.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcPlayerbotCompat.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRun.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcRezRecovery.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRunWing.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcTargeting.h"
 #include "Ai/Dungeon/DungeonClear/Util/ChunkedPathfinder.h"
@@ -98,6 +99,8 @@ namespace
         bool   stallLogged = false;  // this spell of no progress has had its snapshot
         uint32 offMeshMs = 0;        // the tank off the navmesh, this long running
         uint32 rescues = 0;          // ...and put back on it, this many times
+        uint32 corpseRunsLeft = 0;   // the run's, as last seen: one gone is a recovery
+        uint32 regroupsLeft = 0;
     };
 
     // World thread only.
@@ -446,6 +449,10 @@ namespace
         w.lastAnchors = ctx->GetValue<std::unordered_set<uint32>&>(DcKey::ClearedAnchors)->Get().size();
         w.clock = DcTestRun::ProgressClock{};
         w.totalMs = 0;
+        // Deaths got over the way a party would, while these last.
+        DcRunState& run = DcRun::Of(ctx);
+        run.botCorpseRunsLeft = w.corpseRunsLeft = w.limits.corpseRuns;
+        run.botRegroupsLeft = w.regroupsLeft = w.limits.wipeRegroups;
         LOG_INFO("playerbots.dungeonclear", "BOTRUN group {} on map {}: {} leads the clear{}{} ({} bosses)",
                  w.group.GetCounter(), w.mapId, tank->GetName(), w.wing.empty() ? "" : " of ", w.wing,
                  w.bossesTotal);
@@ -570,6 +577,36 @@ namespace
                     break;
                 }
             w.wipedForMs = anyAlive ? 0 : w.wipedForMs + dt;
+
+            // Wiped, with a regroup left: everyone runs back in from the
+            // entrance. Nobody's AI would do it -- the dead lie still with their
+            // AI held (mod-playerbots-plus keeps them down) -- so it is done
+            // here, a few seconds on, well inside the wipe grace.
+            DcRunState& run = DcRun::Of(ctx);
+            uint32 const regroupAfter = std::min<uint32>(5 * IN_MILLISECONDS, Limit(w.limits.wipeGraceS) / 2);
+            if (!anyAlive && run.botRegroupsLeft > 0 && w.wipedForMs >= regroupAfter &&
+                DcRezRecovery::RegroupAtEntrance(tank))
+            {
+                anyAlive = true;
+                w.wipedForMs = 0;
+                LOG_INFO("playerbots.dungeonclear", "BOTRUN group {} on map {}: the party wiped -> back in at the "
+                         "entrance, {} regroup(s) left", w.group.GetCounter(), w.mapId, run.botRegroupsLeft);
+            }
+
+            // A corpse run or a regroup (whoever made it) starts the walk from
+            // the entrance: getting closer to the target counts afresh, and the
+            // time it takes is not time without progress.
+            if (run.botCorpseRunsLeft < w.corpseRunsLeft || run.botRegroupsLeft < w.regroupsLeft)
+            {
+                w.bestDistEntry = 0;
+                w.bestDist = -1.0f;
+                w.clock = DcTestRun::ProgressClock{};
+                w.stallLogged = false;
+                obs.sinceProgressMs = 0;
+            }
+            w.corpseRunsLeft = run.botCorpseRunsLeft;
+            w.regroupsLeft = run.botRegroupsLeft;
+
             obs.partyWiped = !anyAlive;
             obs.wipedForMs = w.wipedForMs;
 
