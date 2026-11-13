@@ -195,6 +195,13 @@ one-line summary once it has gone half its no-progress limit without moving
 forward (`BOTRUN group N on map M stalling: ...`), and in full as it fails
 (`... failing: ...`, `... combat: ...`, `... diag {json}`).
 
+A tank that falls through the floor (a Gundrak tank dropped out of Slad'ran's
+room mid-fight and stood under it for thirteen minutes, every route failing
+"bot off navmesh") is put back: off the navmesh by its own route's word and by
+the floor column's for 20 seconds, it is moved beside the nearest member who
+stands on the mesh, three times a run at most. A player's run is left to the
+player, who can summon.
+
 ### Commands from another module (`DcCommandApi.h`)
 
 A module that steers a run from what a player says (mod-ollama-chat reads "skip

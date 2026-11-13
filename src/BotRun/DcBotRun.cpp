@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -28,6 +29,7 @@
 #include "DcModuleEnable.h"
 #include "DcStrategyGate.h"
 #include "Ai/Dungeon/DungeonClear/Action/DcActionShared.h"
+#include "Ai/Dungeon/DungeonClear/DcApproachState.h"
 #include "Ai/Dungeon/DungeonClear/Data/DungeonBossInfo.h"
 #include "Ai/Dungeon/DungeonClear/Data/DungeonWingRegistry.h"
 #include "Ai/Dungeon/DungeonClear/DcValueKeys.h"
@@ -37,6 +39,8 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcRun.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRunWing.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcTargeting.h"
+#include "Ai/Dungeon/DungeonClear/Util/ChunkedPathfinder.h"
+#include "Ai/Dungeon/DungeonClear/Util/NavmeshSnap.h"
 #include "TestRun/DcDiagSnapshot.h"
 #include "TestRun/DcTestRunVerdict.h"
 #include "TestRun/DcWipeContext.h"
@@ -92,6 +96,8 @@ namespace
         uint32 stalledForMs = 0;
         uint32 wipedForMs = 0;
         bool   stallLogged = false;  // this spell of no progress has had its snapshot
+        uint32 offMeshMs = 0;        // the tank off the navmesh, this long running
+        uint32 rescues = 0;          // ...and put back on it, this many times
     };
 
     // World thread only.
@@ -233,6 +239,77 @@ namespace
             DcDiag::AppendJson(out, snap);
             LOG_INFO("playerbots.dungeonclear", "BOTRUN group {} diag {}", w.group.GetCounter(), out.str());
         }
+    }
+
+    // ---- a tank under the floor -------------------------------------------------
+
+    // A Gundrak tank dropped through the floor of Slad'ran's room mid-fight -- z
+    // 129 to 0 in twenty seconds -- and stood under it for thirteen minutes,
+    // every route failing "bot off navmesh (no start poly)", until nothing
+    // moving forward ended the run: the one stall in an afternoon of twenty
+    // runs at once. The advance's own recovery only sidesteps 5yd; a player
+    // would be summoned, and nobody in this group can. So a tank off the mesh
+    // this long is put beside a member who is on it, a few times a run at most.
+    constexpr uint32 kOffMeshMs = 20 * IN_MILLISECONDS;
+    constexpr uint32 kMaxRescues = 3;
+    // DcDiag's floor column: narrow, and tall enough to find a floor a dozen
+    // yards above or below, so a unit on a lower floor finds its own.
+    constexpr float kMeshColumnRadius = 3.0f;
+    constexpr float kMeshColumnHalfHeight = 40.0f;
+
+    // Standing on the navmesh: a walkable poly in its column, at its height.
+    bool OnMesh(Player const* p)
+    {
+        Map const* map = p->FindMap();
+        if (!map)
+            return true;   // nothing to judge by
+        NavmeshSnap::Result const snap = NavmeshSnap::Snap(map, p->GetPositionX(), p->GetPositionY(),
+                                                           p->GetPositionZ(), kMeshColumnRadius, kMeshColumnHalfHeight);
+        return snap.ok && std::fabs(snap.z - p->GetPositionZ()) < DcDiag::kUnderMeshYd;
+    }
+
+    // Off the mesh by its own route's word (the last build found no start
+    // poly) and by the column's, alive, not in flight, on a vehicle or a
+    // transport, nor mid-teleport.
+    void RescueTank(Watch& w, Player* tank, AiObjectContext* ctx, std::vector<Player*> const& members, uint32 dt)
+    {
+        ChunkedPathfinder::Result const& route = ctx->GetValue<ChunkedPathfinder::Result&>(DcKey::LongPath)->Get();
+        bool const off = tank->IsAlive() && route.startFarFromPoly && !tank->IsBeingTeleported() &&
+                         !tank->IsInFlight() && !tank->GetVehicle() && !tank->GetTransport() && !OnMesh(tank);
+        if (!off)
+        {
+            w.offMeshMs = 0;
+            return;
+        }
+        w.offMeshMs += dt;
+        if (w.offMeshMs < kOffMeshMs || w.rescues >= kMaxRescues)
+            return;
+
+        Player* beside = nullptr;
+        float best = 0.0f;
+        for (Player* member : members)
+            if (member != tank && member->IsAlive() && !member->IsBeingTeleported() && OnMesh(member))
+                if (float const d = tank->GetExactDist2d(member); !beside || d < best)
+                {
+                    beside = member;
+                    best = d;
+                }
+        if (!beside)
+            return;   // nobody on it to go to: looked at again next step
+
+        ++w.rescues;
+        w.offMeshMs = 0;
+        LOG_INFO("playerbots.dungeonclear",
+                 "BOTRUN group {} on map {}: {} has been off the navmesh for {}s at ({:.1f}, {:.1f}, {:.1f}) -> put "
+                 "beside {} ({:.1f}, {:.1f}, {:.1f}), rescue {} of {}",
+                 w.group.GetCounter(), w.mapId, tank->GetName(), kOffMeshMs / IN_MILLISECONDS, tank->GetPositionX(),
+                 tank->GetPositionY(), tank->GetPositionZ(), beside->GetName(), beside->GetPositionX(),
+                 beside->GetPositionY(), beside->GetPositionZ(), w.rescues, kMaxRescues);
+        tank->NearTeleportTo(beside->GetPositionX(), beside->GetPositionY(), beside->GetPositionZ(),
+                             beside->GetOrientation());
+        // Every route was planned from under the floor: rebuilt from where it is now.
+        ctx->GetValue<DcApproachState&>(DcKey::ApproachState)->Get().Reset();
+        ctx->GetValue<ChunkedPathfinder::Result&>(DcKey::LongPath)->Reset();
     }
 
     // A failed run that is still switched on is switched off, with the reason.
@@ -473,6 +550,9 @@ namespace
             }
             else if (w.clock.sinceMs < halfway)
                 w.stallLogged = false;
+
+            // Fallen through the floor: put back on it.
+            RescueTank(w, tank, ctx, members, dt);
 
             if (rs.paused)
                 w.pausedForMs += dt;
