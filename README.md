@@ -187,6 +187,14 @@ reads the verdict with `Get` and lets the party go. A real player joining the
 group ends the watch and leaves the clear to them. `DC_BOT_RUN_API` says it is
 there. Without a caller it does nothing.
 
+A bot run leaves nobody to ask what went wrong, and its party is gone a moment
+after it ends, so `DungeonClear.log` gets the run's diag snapshot (the one
+`.dc test` records at teardown: where everyone is, the target and the route to
+it, the pull, the stall reason, who holds the party in combat) twice: as a
+one-line summary once it has gone half its no-progress limit without moving
+forward (`BOTRUN group N on map M stalling: ...`), and in full as it fails
+(`... failing: ...`, `... combat: ...`, `... diag {json}`).
+
 ### Commands from another module (`DcCommandApi.h`)
 
 A module that steers a run from what a player says (mod-ollama-chat reads "skip

@@ -10,6 +10,7 @@
 #include <limits>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -36,6 +37,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcRun.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRunWing.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcTargeting.h"
+#include "TestRun/DcDiagSnapshot.h"
 #include "TestRun/DcTestRunVerdict.h"
 #include "TestRun/DcWipeContext.h"
 
@@ -89,6 +91,7 @@ namespace
         uint32 pausedForMs = 0;
         uint32 stalledForMs = 0;
         uint32 wipedForMs = 0;
+        bool   stallLogged = false;  // this spell of no progress has had its snapshot
     };
 
     // World thread only.
@@ -205,6 +208,31 @@ namespace
         LOG_INFO("playerbots.dungeonclear", "BOTRUN group {} on map {} {} after {}s{}{}",
                  w.group.GetCounter(), w.mapId, what, (w.totalMs ? w.totalMs : w.stageMs) / IN_MILLISECONDS,
                  why.empty() ? "" : ": ", why);
+    }
+
+    // How the run stands, in the log: the snapshot `.dc test` records at a
+    // failed run's teardown (DcDiag) -- where everyone is, the target and the
+    // route to it, the pull, the stall reason, who holds the party in combat.
+    // A bot run has nobody to ask afterwards, and the party is gone a moment
+    // later, so this is all there is to go on. Read-only; before anything is
+    // switched off. With `json`, the whole record as well.
+    void LogDiag(Watch const& w, Player* tank, char const* when, bool json)
+    {
+        if (!tank)
+            return;
+        DcDiag::Snapshot const snap = DcDiag::Capture(tank, when);
+        LOG_INFO("playerbots.dungeonclear", "BOTRUN group {} on map {} {}: {}", w.group.GetCounter(), w.mapId, when,
+                 DcDiag::Summarize(snap));
+        if (!snap.valid)
+            return;
+        LOG_INFO("playerbots.dungeonclear", "BOTRUN group {} combat: {}", w.group.GetCounter(),
+                 DcDiag::SummarizeCombat(snap));
+        if (json)
+        {
+            std::ostringstream out;
+            DcDiag::AppendJson(out, snap);
+            LOG_INFO("playerbots.dungeonclear", "BOTRUN group {} diag {}", w.group.GetCounter(), out.str());
+        }
     }
 
     // A failed run that is still switched on is switched off, with the reason.
@@ -434,6 +462,18 @@ namespace
             w.clock.Step(dt, progressed, rs.eventProgressSeq);
             obs.sinceProgressMs = w.clock.sinceMs;
 
+            // Half the time a run may go without moving forward: how it stands
+            // as it starts to stall, once a spell (the end of it is logged as
+            // it fails, if it does).
+            uint32 const halfway = w.limits.noProgressS ? w.limits.noProgressS * IN_MILLISECONDS / 2 : 0;
+            if (halfway && w.clock.sinceMs >= halfway && !w.stallLogged)
+            {
+                w.stallLogged = true;
+                LogDiag(w, tank, "stalling", false);
+            }
+            else if (w.clock.sinceMs < halfway)
+                w.stallLogged = false;
+
             if (rs.paused)
                 w.pausedForMs += dt;
             else
@@ -477,6 +517,7 @@ namespace
             return;
         }
         std::string const why = Describe(verdict, w, disabledWhy);
+        LogDiag(w, tank, "failing", true);
         if (!obs.disableFired)
             SwitchOff(members, why);
         Finish(w, DcBotRun::Phase::Failed, why);
