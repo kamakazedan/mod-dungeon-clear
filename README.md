@@ -72,7 +72,7 @@ session, so it needs no group.)
 | `.dc pause` | `dc pause` / `dungeon clear pause` | Soft-stop in place; resume with the same command. |
 | `.dc skip [boss]` | `dc skip [boss]` | Skip the current objective if the tank is stalled; with a boss (its entry or part of its name), skip that one wherever it is in the run. |
 | `.dc unskip <boss>` | `dc unskip <boss>` | Put a skipped boss back in the run, in its place in the order. |
-| `.dc pull` | `dc pull` / `dungeon clear pull` | Cycle the pull mode. |
+| `.dc pull [off\|on\|dynamic]` | `dc pull` / `dungeon clear pull` | Cycle the pull mode, or set it: `off` is Leeroy, `on` Advanced, `dynamic` Dynamic. |
 | `.dc status` | `dc status` | Print the current run status. |
 | `.dc bosses` | `dc bosses` | List the dungeon's bosses and kill state. |
 | `.dc go <boss>` | | Route directly to a named boss. |
