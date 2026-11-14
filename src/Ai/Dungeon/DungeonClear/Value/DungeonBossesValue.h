@@ -6,6 +6,7 @@
 #ifndef _PLAYERBOT_DUNGEONBOSSESVALUE_H
 #define _PLAYERBOT_DUNGEONBOSSESVALUE_H
 
+#include <string>
 #include <vector>
 
 #include "Ai/Dungeon/DungeonClear/Data/DungeonBossInfo.h"
@@ -31,6 +32,11 @@ public:
 
 protected:
     std::vector<DungeonBossInfo> Calculate() override;
+
+private:
+    // The wing split last logged for this bot (map, wing, bosses kept): it is
+    // logged again only when that changes.
+    std::string lastWingLogged_;
 };
 
 #endif

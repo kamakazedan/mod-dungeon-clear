@@ -153,8 +153,24 @@ namespace
     //   UBRS share a portal, so proximity would pick the wrong half there.
     //
     // Maps with no wing registration pass through.
+    //
+    // The split is logged once for each wing a bot settles on (`lastLogged`,
+    // the bot's own value's): this runs on every evaluation, every five
+    // seconds a bot, and logging it each time made ~30k identical lines.
+    void NoteWing(std::string& lastLogged, uint32 mapId, char const* how, std::string const& wing, size_t kept,
+                  size_t total)
+    {
+        std::string const key = std::to_string(mapId) + '|' + wing + '|' + std::to_string(kept) + '|' +
+                                std::to_string(total);
+        if (key == lastLogged)
+            return;
+        lastLogged = key;
+        LOG_DEBUG("playerbots.dungeonclear", "[dungeon-clear] map {} split into wings; {} '{}' — {} of {} bosses kept",
+                  mapId, how, wing, kept, total);
+    }
+
     std::vector<DungeonBossInfo> FilterToCurrentWing(Player* bot, uint32 mapId,
-                                                     std::vector<DungeonBossInfo> bosses)
+                                                     std::vector<DungeonBossInfo> bosses, std::string& lastLogged)
     {
         DungeonWingLayout const* layout = DungeonWingRegistry::Get(mapId);
         if (!layout || layout->wings.empty() || bosses.empty())
@@ -176,9 +192,7 @@ namespace
             if (!wing)
                 return bosses;
             std::vector<DungeonBossInfo> filtered = DcRunWing::FilterToWing(bosses, *wing);
-            LOG_DEBUG("playerbots.dungeonclear",
-                      "[dungeon-clear] map {} split into wings; run wing '{}' — "
-                      "{} of {} bosses kept", mapId, wing->name, filtered.size(), bosses.size());
+            NoteWing(lastLogged, mapId, "run wing", wing->name, filtered.size(), bosses.size());
             return filtered;
         }
 
@@ -194,11 +208,7 @@ namespace
             return bosses;
 
         std::vector<DungeonBossInfo> filtered = DcRunWing::FilterToWing(bosses, wings[bestWing]);
-
-        LOG_DEBUG("playerbots.dungeonclear",
-                  "[dungeon-clear] map {} split into wings; bot in '{}' — "
-                  "{} of {} bosses kept", mapId, wings[bestWing].name,
-                  filtered.size(), bosses.size());
+        NoteWing(lastLogged, mapId, "bot in", wings[bestWing].name, filtered.size(), bosses.size());
 
         // Defensive: if the chosen wing somehow contributed nothing, keep the
         // full list so the bot still has a target.
@@ -288,5 +298,5 @@ std::vector<DungeonBossInfo> DungeonBossesValue::Calculate()
     if (!map || !map->IsDungeon())
         return {};
 
-    return SnapAll(map, FilterToCurrentWing(bot, bot->GetMapId(), BuildRoster(bot)));
+    return SnapAll(map, FilterToCurrentWing(bot, bot->GetMapId(), BuildRoster(bot), lastWingLogged_));
 }
