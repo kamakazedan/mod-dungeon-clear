@@ -335,7 +335,7 @@ float DungeonClearMultiplier::GetValue(Action* action)
     // DungeonClearNeeds{Eat,Drink} triggers raise the floor (drink/eat up to the
     // target even above the stock playerbots stop); this caps the ceiling so a
     // target BELOW the stock stop is honoured too. 0 = inherit, no cap.
-    if (name == "food" || name == "drink")
+    if (name == "eat" || name == "drink")
     {
         if (Player* tank = AI_VALUE(Player*, DcKey::PartyTank))
         {
