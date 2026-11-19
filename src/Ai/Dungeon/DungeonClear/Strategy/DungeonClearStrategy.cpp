@@ -410,9 +410,11 @@ void DungeonClearStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "dungeon clear needs drink",
         { NextAction("drink", DcRel::NeedsRest) }));
+    // Playerbots' eating action is "eat" (its "food" is the strategy, and the
+    // inventory category); before its eat/drink rewrite the action was "food".
     triggers.push_back(new TriggerNode(
         "dungeon clear needs eat",
-        { NextAction("food", DcRel::NeedsRest) }));
+        { NextAction("eat", DcRel::NeedsRest) }));
 
     // Keep the DC loot policy (quality floor / IgnoreChests) enforced for the
     // WHOLE party while the run is PAUSED — leader and followers alike. The
