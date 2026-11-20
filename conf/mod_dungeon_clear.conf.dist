@@ -483,6 +483,30 @@ DungeonClear.PartyMaxSpread = 25.0
 DungeonClear.PartyMaxSpreadNonHealer = 0
 
 #
+#    DungeonClear.LeeroyHealerManaPct
+#    DungeonClear.LeeroyDpsManaPct
+#    DungeonClear.LeeroySpreadScale
+#        Leeroy (the leading tank's pull setting off: `dc pull off`, or "be more
+#        aggressive" in party with mod-ollama-chat) pushes harder. With Smart
+#        Rest on, the party stops to rest only once a healer is below
+#        LeeroyHealerManaPct or a DPS or tank mana user below LeeroyDpsManaPct,
+#        instead of SmartRestHealerManaPct / SmartRestDpsManaPct (never above
+#        those; 0 = no mana stop at all). The release bars a rest holds out for,
+#        the health trigger and the boss top-off are as they were. And the
+#        ordinary between-pulls spread gate is LeeroySpreadScale times as wide:
+#        PartyMaxSpread for the healer and PartyMaxSpreadNonHealer for the rest
+#        (25 and 40 yards become 50 and 80 at 2). A sealed boss room's muster
+#        and a camp a scripted stage holds the party at are as they were.
+#        Server-side only: the companion addon does not show them.
+#
+#        Default: 20, 5, 2.0
+#
+
+DungeonClear.LeeroyHealerManaPct = 20
+DungeonClear.LeeroyDpsManaPct = 5
+DungeonClear.LeeroySpreadScale = 2.0
+
+#
 #    DungeonClear.CombatRegroup
 #        1 (default): during combat, reconnect a follower to the fight ONLY when it
 #        truly cannot contribute from where it stands — a DPS with no visible target

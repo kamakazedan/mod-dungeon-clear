@@ -322,7 +322,17 @@ DcPartyState::SpreadGate DcPartyState::GetSpreadGate(Player* bot, AiObjectContex
 
     // The ordinary gate, and only it, lets those who are not healers trail
     // further. Above: waived gates and a sealed room's clump are not widened.
-    float const nonHealer = DcSettings::GetFloat(bot, "PartyMaxSpreadNonHealer");
+    float nonHealer = DcSettings::GetFloat(bot, "PartyMaxSpreadNonHealer");
+    // Leeroy (the tank's pull setting off) lets the whole party trail further:
+    // the ordinary tank-anchored gate, the healer's and the rest's,
+    // LeeroySpreadScale times as wide. A camp-anchored gate (a scripted stage
+    // forcing pull mode) is as it was.
+    if (!gate.anchor && context->GetValue<uint32>(DcKey::PullSetting)->Get() == 0u)
+    {
+        float const scale = DcSettings::GetFloat(bot, "LeeroySpreadScale");
+        gate.maxSpread *= scale;
+        nonHealer *= scale;
+    }
     if (nonHealer > gate.maxSpread)
         gate.maxSpreadNonHealer = nonHealer;
     return gate;
