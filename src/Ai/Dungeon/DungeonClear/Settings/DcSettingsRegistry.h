@@ -336,6 +336,15 @@ inline constexpr DcSettingDef kDcSettings[] =
     // widens: a sealed boss room's muster clump and a waived gate are as they
     // were.
     { "PartyMaxSpreadNonHealer", DcType::Float, 0,  0, 120,  true  },
+    // Leeroy (the leading tank's pull setting off: `dc pull off`, "be more
+    // aggressive" in mod-ollama-chat) pushes harder: Smart Rest's mana triggers
+    // drop to LeeroyHealerManaPct / LeeroyDpsManaPct (never above the ordinary
+    // ones; 0 = no mana stop at all; the release bars and the boss top-off are
+    // as they were), and the ordinary tank-anchored spread gate, the healer's
+    // and the rest's, is LeeroySpreadScale times as wide. Server-only.
+    { "LeeroyHealerManaPct",   DcType::UInt,   20,  0, 100,  false },
+    { "LeeroyDpsManaPct",      DcType::UInt,    5,  0, 100,  false },
+    { "LeeroySpreadScale",     DcType::Float,   2,  1,   4,  false },
 
     // In-combat regroup (contribution-gated, Option B): reconnect a follower to the
     // fight ONLY when it truly can't contribute from where it stands — a DPS with no

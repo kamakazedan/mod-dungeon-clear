@@ -103,6 +103,17 @@ namespace
         in.hpTriggerPct = static_cast<float>(DcSettings::GetUInt(leader, "SmartRestHealthPct"));
         in.dpsManaTriggerPct = static_cast<float>(DcSettings::GetUInt(leader, "SmartRestDpsManaPct"));
         in.healerManaTriggerPct = static_cast<float>(DcSettings::GetUInt(leader, "SmartRestHealerManaPct"));
+        // Leeroy (the tank's pull setting off: `dc pull off`, mod-ollama-chat's
+        // "be more aggressive") pushes on to lower mana before it stops -- the
+        // Leeroy triggers, never above the ordinary ones. Before the release
+        // bars below, which stay as they are, as does the boss top-off.
+        if (leaderCtx && leaderCtx->GetValue<uint32>(DcKey::PullSetting)->Get() == 0u)
+        {
+            in.healerManaTriggerPct = std::min(
+                in.healerManaTriggerPct, static_cast<float>(DcSettings::GetUInt(leader, "LeeroyHealerManaPct")));
+            in.dpsManaTriggerPct = std::min(
+                in.dpsManaTriggerPct, static_cast<float>(DcSettings::GetUInt(leader, "LeeroyDpsManaPct")));
+        }
         in.maxRestMs = DC_SMART_REST_MAX_MS;
 
         // The release bar by role, kept clear of the role's own trigger: at or
